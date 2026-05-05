@@ -1,0 +1,10 @@
+{
+	"niri/window": {
+		"format": "{app_id}",
+		"separate-outputs": true
+		// "rewrite": {
+		// 	"(.*) - Mozilla Firefox": "🌎 $1",
+		// 	"(.*) - zsh": "> [$1]"
+		// }
+	}
+}

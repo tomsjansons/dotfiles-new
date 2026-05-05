@@ -1,0 +1,110 @@
+@import "mocha.css";
+
+* {
+  font-family: FiraCode Nerd Font;
+  font-size: 12px;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  box-shadow: none;
+}
+
+#waybar {
+  background-color: @base;
+  color: @text;
+}
+
+#workspaces {
+  background-color: @base;
+  color: @text;
+}
+
+#workspaces button {
+  color: @lavender;
+  padding: 0.4rem;
+}
+
+#workspaces button.active {
+  color: @sky;
+}
+
+#workspaces button:hover {
+  color: @sapphire;
+}
+
+#custom-music,
+#tray,
+#temperature,
+#cpu,
+#backlight,
+#clock,
+#battery,
+#pulseaudio,
+#custom-theme,
+#idle_inhibitor,
+#custom-notification,
+#custom-lock,
+#custom-power {
+  /* background-color: @base; */
+  padding: 0.5rem 1rem;
+}
+
+#custom-lock {
+  margin-left: 1rem;
+}
+
+#clock {
+  color: @blue;
+  margin-right: 1rem;
+}
+
+#battery {
+  color: @green;
+}
+
+#battery.charging {
+  color: @green;
+}
+
+#battery.warning:not(.charging) {
+  color: @red;
+}
+
+#backlight {
+  color: @yellow;
+}
+
+#pulseaudio {
+  color: @maroon;
+  margin-left: 1rem;
+}
+
+#custom-music {
+  color: @mauve;
+}
+
+#custom-lock {
+  color: @lavender;
+}
+
+#custom-power {
+  margin-right: 5px;
+  color: @red;
+}
+
+#custom-theme {
+  font-size: 19px;
+  color: @mauve;
+}
+
+#idle_inhibitor {
+  font-size: 14px;
+  color: @red;
+}
+
+#custom-notification {
+  color: @lavender;
+}

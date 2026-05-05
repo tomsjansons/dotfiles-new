@@ -1,0 +1,7 @@
+[tools]
+yarn = "latest"
+node = "latest"
+python = "latest"
+bun = "latest"
+deno = "latest"
+java = "latest"

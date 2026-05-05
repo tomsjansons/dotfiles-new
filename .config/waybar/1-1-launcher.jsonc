@@ -1,0 +1,7 @@
+{
+	"custom/launcher": {
+		"format": "󰣇",
+		"on-click": "wofi --show drun",
+		"on-click-right": "killall wofi"
+	}
+}

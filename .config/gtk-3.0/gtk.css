@@ -1,0 +1,16 @@
+ @define-color theme_text_color #b5b5b5;
+ @define-color theme_fg_color #b5b5b5;
+ /* @define-color theme_base_color #242424; */
+
+ /* @define-color theme_selected_fg_color #f0f0f0; */
+ /* @define-color theme_unfocused_selected_fg_color #d8d8d8; */
+ @define-color theme_selected_bg_color #474a5c;
+ @define-color theme_unfocused_selected_bg_color #474a5c;
+
+ @define-color theme_bg_color #2b2b2b;
+
+ MessageList {
+   -ETree-alternating-row-colors: false;
+   /* -MessageList-new-mail-fg-color: #ffffff; */
+   -MessageList-new-mail-bg-color: #383838;
+ }

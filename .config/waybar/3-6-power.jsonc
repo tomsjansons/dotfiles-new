@@ -1,0 +1,6 @@
+{
+	"custom/power": {
+		"format": " ",
+		"on-click": "bash ~/.config/system_scripts/power-menu.sh"
+	}
+}

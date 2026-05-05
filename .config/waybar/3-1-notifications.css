@@ -1,0 +1,47 @@
+#custom-notification {
+	margin-top: 6px;
+	margin-left: 8px;
+	padding-left: 10px;
+	margin-bottom: 0px;
+	transition: none;
+	padding-right: 16px;
+	color: #cdd6f4;
+	background: transparent;
+	border-radius: 8px;
+}
+
+#custom-notification.notification {
+	margin-top: 6px;
+	margin-left: 8px;
+	padding-left: 10px;
+	margin-bottom: 0px;
+	transition: none;
+	padding-right: 10px;
+	color: #cdd6f4;
+	background: transparent;
+	border-radius: 8px;
+}
+
+#custom-notification.dnd-notification {
+	margin-top: 6px;
+	margin-left: 8px;
+	padding-left: 10px;
+	margin-bottom: 0px;
+	transition: none;
+	padding-right: 10px;
+	color: #cdd6f4;
+	background: transparent;
+	border-radius: 8px;
+}
+
+#custom-notification.dnd-inhibited-notification {
+	margin-top: 6px;
+	margin-left: 8px;
+	padding-left: 10px;
+	margin-bottom: 0px;
+	transition: none;
+	padding-right: 10px;
+	color: #cdd6f4;
+	background: transparent;
+	border-radius: 8px;
+}

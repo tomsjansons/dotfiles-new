@@ -1,0 +1,22 @@
+[terminal]
+shell = "zsh"
+
+[font]
+normal.family = "FiraCode Nerd Font"
+normal.style = "Semibold"
+size = 10
+
+[cursor.style]
+blinking = "Always"
+shape = "Block"
+
+[window]
+option_as_alt = "Both"
+decorations_theme_variant = "Dark"
+
+[window.padding]
+x = 10
+y = 10
+
+[keyboard]
+bindings = [{ key = "M", mods = "Control", action = "CreateNewWindow" }]

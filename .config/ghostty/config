@@ -1,0 +1,27 @@
+font-size = 10
+click-repeat-interval = 500
+auto-update-channel = tip
+theme = Catppuccin Mocha
+macos-option-as-alt = true
+
+keybind = ctrl+shift+j=write_screen_file:paste
+keybind = ctrl+j=scroll_page_down
+keybind = ctrl+k=scroll_page_up
+
+keybind = alt+1=unbind
+keybind = alt+2=unbind
+keybind = alt+3=unbind
+keybind = alt+4=unbind
+keybind = alt+5=unbind
+keybind = alt+6=unbind
+keybind = alt+7=unbind
+keybind = alt+8=unbind
+keybind = alt+9=unbind
+keybind = alt+0=unbind
+
+keybind = ctrl+j=unbind
+keybind = ctrl+k=unbind
+keybind = ctrl+tab=unbind
+keybind = ctrl+shift+t=unbind
+keybind = cmd+w=unbind
+keybind = shift+enter=unbind
