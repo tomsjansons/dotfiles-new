@@ -144,3 +144,7 @@ rules = [
 ]
 
 # : }}}
+
+[flavor]
+dark  = "noctalia"
+light = "noctalia"

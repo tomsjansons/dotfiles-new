@@ -1,7 +1,7 @@
 font-size = 10
 click-repeat-interval = 500
 auto-update-channel = tip
-theme = Catppuccin Mocha
+theme = noctalia
 macos-option-as-alt = true
 
 keybind = ctrl+shift+j=write_screen_file:paste

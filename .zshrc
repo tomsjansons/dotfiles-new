@@ -1,3 +1,5 @@
+# Added by ForgeCode installer
+export PATH="/home/toms/.local/bin:$PATH"
 # Lines configured by zsh-newuser-install
 HISTFILE=~/.histfile
 HISTSIZE=1000
@@ -30,7 +32,7 @@ source <(jj util completion zsh)
 
 alias lazynvim='NVIM_APPNAME=nvimlazy nvim'
 export EDITOR='nvim'
-export VISUAL='ghostty -e $EDITOR'
+export VISUAL='ghostty -e nvim'
 
 export PATH="$PATH:$(go env GOBIN):$(go env GOPATH)/bin"
 export PATH="$PATH:/home/toms/.lmstudio/bin"
@@ -64,6 +66,7 @@ alias lsas="eza --long --all --icons=always --git --time-style=long-iso --octal-
 alias ls="eza"
 alias cat="bat"
 alias nvim-new="ghostty -e nvim"
+alias p="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --no-tools --no-extensions --no-skills --no-themes --no-prompt-templates -p $@"
 
 pass-agent() {
   pass-login

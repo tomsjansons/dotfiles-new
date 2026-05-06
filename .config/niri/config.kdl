@@ -16,6 +16,11 @@
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swayidle.sh"
 spawn-at-startup "qs" "-c" "noctalia-shell"
 
+debug {
+  // Allows notification actions and window activation from Noctalia.
+  honor-xdg-activation-with-invalid-serial
+}
+
 hotkey-overlay {
     skip-at-startup
 }
@@ -356,10 +361,14 @@ window-rule {
   open-floating true
 }
 
+layer-rule {
+  match namespace="^noctalia-overview*"
+  place-within-backdrop true
+}
+
 window-rule {
-  geometry-corner-radius 12
+  geometry-corner-radius 20
   clip-to-geometry true
-  // draw-border-with-background true
 }
 
 // Window rules let you adjust behavior for individual windows.
@@ -416,8 +425,8 @@ binds {
   Mod+Q { spawn "ghostty"; }
   Mod+W { spawn "nautilus"; }
   Mod+Shift+W { spawn "/home/toms/.config/system_resources/float-yazi.sh"; }
-  Mod+R { spawn "rofi" "-show" "drun"; }
-  Mod+B { spawn "/home/toms/.config/system_resources/power-menu.sh"; }
+  Mod+R { spawn-sh "qs -c noctalia-shell ipc call launcher toggle"; }
+  Mod+B { spawn-sh "qs -c noctalia-shell ipc call sessionMenu toggle"; }
 
   // Example volume keys mappings for PipeWire & WirePlumber.
   // The allow-when-locked=true property makes them work even when the session is locked.
@@ -638,3 +647,6 @@ binds {
   // moving the mouse or pressing any other key.
   Mod+Shift+P { power-off-monitors; }
 }
+
+include "./noctalia.kdl"
+
