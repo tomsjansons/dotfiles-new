@@ -1,0 +1,14 @@
+{
+  "name": "idle-notify",
+  "version": "0.1.0",
+  "description": "Pi extension that sends a desktop notification when the agent becomes idle",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.64.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "gpt-preamble",
+  "version": "0.1.0",
+  "description": "Codex-style preamble guidance for GPT 5.4 and GPT 5.5 models in Pi",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.64.0"
+  }
+}

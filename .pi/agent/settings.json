@@ -1,0 +1,14 @@
+{
+  "lastChangelogVersion": "0.72.1",
+  "defaultThinkingLevel": "high",
+  "theme": "dark",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
+  "packages": [
+    "npm:pi-web-access",
+    "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
+    "npm:@howaboua/pi-vent"
+  ],
+  "hideThinkingBlock": false,
+  "transport": "sse"
+}

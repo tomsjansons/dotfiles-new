@@ -1,0 +1,9 @@
+{
+	"tui.select.up": ["up", "ctrl+p"],
+	"tui.select.down": ["down", "ctrl+n"],
+	"tui.editor.cursorRight": "",
+	"app.editor.external": "ctrl+g",
+	"app.model.cycleForward": "",
+	"app.model.cycleBackward": "",
+	"app.session.rename": ""
+}

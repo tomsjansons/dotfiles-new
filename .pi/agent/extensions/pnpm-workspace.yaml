@@ -1,0 +1,6 @@
+packages:
+  - at-preload
+  - hashline-tools
+  - idle-notify
+  - gpt-preamble
+  - pi-lsp

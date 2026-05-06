@@ -1,0 +1,17 @@
+{
+  "name": "hashline-tools",
+  "version": "0.1.0",
+  "description": "Hashline read/edit/write tools and a find tool for Pi",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-tui": "^0.64.0",
+    "@sinclair/typebox": "^0.34.49",
+    "ignore": "^7.0.5"
+  }
+}

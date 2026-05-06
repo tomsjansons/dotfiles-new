@@ -1,0 +1,16 @@
+{
+  "name": "at-preload",
+  "version": "0.1.0",
+  "description": "Pi extension that preloads @path mentions from prompts",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-tui": "^0.64.0",
+    "ignore": "^7.0.5"
+  }
+}
