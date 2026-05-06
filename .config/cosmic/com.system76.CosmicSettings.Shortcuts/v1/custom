@@ -1,0 +1,122 @@
+{
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "e",
+    ): MoveToPreviousWorkspace,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "e",
+    ): PreviousWorkspace,
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "g",
+    ): ToggleSticky,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "c",
+    ): Close,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "a",
+    ): System(Launcher),
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "q",
+        description: Some("Wezterm"),
+    ): Spawn("ghostty"),
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "n",
+    ): Minimize,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "t",
+    ): Disable,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "f",
+    ): NextWorkspace,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "p",
+    ): System(PlayPause),
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "minus",
+    ): Resizing(Inwards),
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "r",
+    ): System(AppLibrary),
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "equal",
+    ): Resizing(Outwards),
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "slash",
+    ): Disable,
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "f",
+    ): MoveToNextWorkspace,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "bracketright",
+    ): System(PlayNext),
+    (
+        modifiers: [
+            Super,
+        ],
+    ): Disable,
+    (
+        modifiers: [
+            Super,
+        ],
+        key: "bracketleft",
+    ): System(PlayPrev),
+    (
+        modifiers: [
+            Super,
+            Shift,
+        ],
+        key: "r",
+    ): Disable,
+}

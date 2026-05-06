@@ -1,0 +1,9 @@
+(
+    rules: "",
+    model: "pc105",
+    layout: "lv",
+    variant: "apostrophe",
+    options: Some("terminate:ctrl_alt_bksp,caps:swapescape"),
+    repeat_delay: 600,
+    repeat_rate: 25,
+)
