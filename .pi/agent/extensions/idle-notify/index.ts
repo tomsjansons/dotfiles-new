@@ -22,6 +22,14 @@ function isAssistantMessage(message: unknown): message is AssistantMessageLike {
 	return !!message && typeof message === "object" && (message as { role?: string }).role === "assistant";
 }
 
+function isPrintMode(): boolean {
+	const args = process.argv.slice(2);
+	for (const arg of args) {
+		if (arg === "-p" || arg === "--print") return true;
+	}
+	return false;
+}
+
 function getAssistantText(message: AssistantMessageLike): string {
 	if (typeof message.content === "string") return message.content.trim();
 	if (!Array.isArray(message.content)) return "";
@@ -156,17 +164,19 @@ function sendNotification(title: string, body: string, urgency: "low" | "normal"
 export default function idleNotifyExtension(pi: ExtensionAPI): void {
 	pi.on("agent_end", async (event, ctx) => {
 		if (process.env.PI_IDLE_NOTIFY_DISABLED === "1") return;
+		if (isPrintMode()) return;
 		if (Number(process.env.PI_SUBAGENT_DEPTH ?? "0") > 0) return;
 
+		const cwd = ctx.cwd;
 		const lastAssistant = [...event.messages].reverse().find(isAssistantMessage);
 		const lastMessage = compactWhitespace(lastAssistant ? getAssistantText(lastAssistant) : "");
-		const idleStatus = (await classifyIdleStatus(lastMessage, ctx.cwd).catch(() => null)) ??
+		const idleStatus = (await classifyIdleStatus(lastMessage, cwd).catch(() => null)) ??
 			(fallbackNeedsInput(lastMessage) ? "WAITING" : "DONE");
 
 		const waitingForInput = idleStatus === "WAITING";
 		const emoji = waitingForInput ? "❓" : "✅";
 		const title = waitingForInput ? `${emoji} Pi idle — input needed` : `${emoji} Pi idle — task done`;
-		const body = `📁 ${ctx.cwd}`;
+		const body = `📁 ${cwd}`;
 
 		sendNotification(title, body, waitingForInput ? "normal" : "low");
 	});

@@ -3,7 +3,7 @@
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "gpt-5.4",
   "packages": [
     "npm:pi-web-access",
     "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
