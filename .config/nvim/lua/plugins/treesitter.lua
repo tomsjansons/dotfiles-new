@@ -18,6 +18,10 @@ local parsers = {
 	"swift",
 }
 
+local builtin_parser_dir = vim.env.VIMRUNTIME .. "/parser"
+vim.treesitter.language.add("vim", { path = builtin_parser_dir .. "/vim.so" })
+vim.treesitter.language.add("vimdoc", { path = builtin_parser_dir .. "/vimdoc.so" })
+
 require("nvim-treesitter").setup()
 
 local installed = require("nvim-treesitter").get_installed()

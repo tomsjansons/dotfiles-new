@@ -39,6 +39,7 @@ require("telescope").setup({
 	},
 	extensions = {
 		file_browser = {
+			initial_mode = "normal",
 			hidden = { file_browser = true, folder_browser = true },
 			respect_gitignore = false,
 		},

@@ -25,19 +25,48 @@ vim.api.nvim_create_user_command("Q", "q", {})
 vim.api.nvim_create_user_command("Qa", "qa", {})
 vim.api.nvim_create_user_command("QA", "qa", {})
 
+local function is_buf_in_cwd(bufnr, cwd)
+	if not vim.api.nvim_buf_is_valid(bufnr) or not vim.bo[bufnr].buflisted then
+		return false
+	end
+
+	local name = vim.api.nvim_buf_get_name(bufnr)
+	if name == "" then
+		return false
+	end
+
+	local path = vim.fs.normalize(vim.uv.fs_realpath(name) or name)
+	local root = vim.fs.normalize(cwd)
+
+	if path == root then
+		return true
+	end
+
+	local prefix = root:sub(-1) == "/" and root or (root .. "/")
+	return vim.startswith(path, prefix)
+end
+
 function StepBackJumplist(original_buf)
+	if vim.api.nvim_get_current_buf() ~= original_buf then
+		return
+	end
+
 	local jumplist = vim.fn.getjumplist()
 	local jumps = jumplist[1]
 	local jumpPos = jumplist[2]
+	local cwd = vim.uv.cwd()
 
 	for i = jumpPos, 1, -1 do
 		local jump = jumps[i]
-		if jump.bufnr ~= original_buf and vim.api.nvim_buf_is_valid(jump.bufnr) then
+		if jump.bufnr ~= original_buf and is_buf_in_cwd(jump.bufnr, cwd) then
 			vim.api.nvim_win_set_buf(0, jump.bufnr)
 			vim.api.nvim_win_set_cursor(0, { jump.lnum, jump.col })
-			break
+			return
 		end
 	end
+
+	local empty_buf = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_win_set_buf(0, empty_buf)
 end
 
 vim.keymap.set("n", "<leader>D", function()

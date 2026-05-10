@@ -9,7 +9,7 @@ vim.pack.add({
 require("mason").setup()
 require("mason-lspconfig").setup({
 	automatic_enable = {
-		exclude = { "ts_ls" },
+		exclude = { "ts_ls", "vtsls" },
 	},
 })
 require("mason-tool-installer").setup({
@@ -18,7 +18,7 @@ require("mason-tool-installer").setup({
 		"stylua",
 		"eslint_d",
 		"prettierd",
-		"vtsls",
+		"tsgo",
 		"gopls",
 		"gofumpt",
 		"rust_analyzer",
