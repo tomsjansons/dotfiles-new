@@ -24,7 +24,7 @@
     ]
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
     "@sinclair/typebox": "^0.34.49",
     "vscode-jsonrpc": "^8.2.0",
     "vscode-languageserver-protocol": "^3.17.5"

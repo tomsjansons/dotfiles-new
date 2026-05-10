@@ -9,6 +9,6 @@
     ]
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.64.0"
+    "@earendil-works/pi-coding-agent": "^0.74.0"
   }
 }

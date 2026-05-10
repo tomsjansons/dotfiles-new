@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 
 const CLASSIFIER_MODEL = process.env.PI_IDLE_NOTIFY_MODEL ?? "openrouter/google/gemini-2.0-flash-lite-001";

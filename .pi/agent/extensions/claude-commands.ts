@@ -19,7 +19,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -323,20 +323,6 @@ export default function claudeCommandsExtension(pi: ExtensionAPI) {
     });
   }
 
-  // ---- Refresh on session switch ------------------------------------------
-
-  pi.on("session_start", async (_event, ctx) => {
-    loadCommands(ctx.cwd);
-    const count = commands.size;
-    if (count > 0) {
-      const names = [...commands.keys()]
-        .map((n) => `/${COMMAND_PREFIX}${n}`)
-        .join(", ");
-      ctx.ui.notify(`Claude commands: ${count} loaded – ${names}`, "info");
-    }
-  });
-
-  pi.on("session_switch", async (_event, ctx) => {
-    loadCommands(ctx.cwd);
-  });
+  // `session_switch` was removed in newer pi versions.
+  // `session_start` already fires for startup, reload, new, resume, and fork.
 }

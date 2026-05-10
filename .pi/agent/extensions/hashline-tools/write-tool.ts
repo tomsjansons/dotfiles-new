@@ -1,9 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { withFileMutationQueue } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { normalizePath, resolvePath, stripHashlinePrefixesFromText } from "./hashline.ts";

@@ -16,8 +16,8 @@
  *   /novim  — Restore default editor
  */
 
-import { CustomEditor, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth, type TUI } from "@mariozechner/pi-tui";
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1600,14 +1600,54 @@ function clamp(v: number, lo: number, hi: number): number {
 
 export default function (pi: ExtensionAPI) {
 	let vimEnabled = true;
+	const vimFactory = (tui: TUI, theme: any, kb: any) => new VimEditor(tui, theme, kb);
+	const applyTimers = new Set<ReturnType<typeof setTimeout>>();
+	const clearApplyTimers = () => {
+		for (const timer of applyTimers) clearTimeout(timer);
+		applyTimers.clear();
+	};
+	const applyVim = (ctx: any) => {
+		if (!ctx?.hasUI || !vimEnabled) return;
+		try {
+			const current = ctx.ui.getEditorComponent?.();
+			if (current !== vimFactory) {
+				ctx.ui.setEditorComponent(vimFactory);
+			}
+			ctx.ui.setStatus("vim", `${S.vim} VIM ${S.R}`);
+		} catch {
+			// Best effort during startup/reload UI churn.
+		}
+	};
+	const scheduleApplyVim = (ctx: any) => {
+		clearApplyTimers();
+		applyVim(ctx);
+		for (const delay of [25, 100, 250, 500, 1000, 2000]) {
+			const timer = setTimeout(() => {
+				applyTimers.delete(timer);
+				applyVim(ctx);
+			}, delay);
+			applyTimers.add(timer);
+		}
+	};
 
 	pi.on("session_start", (_event, ctx) => {
-		if (!ctx.hasUI || !vimEnabled) return;
-		ctx.ui.setEditorComponent((tui, theme, kb) => new VimEditor(tui, theme, kb));
-		ctx.ui.setStatus("vim", `${S.vim} VIM ${S.R}`);
+		scheduleApplyVim(ctx);
+	});
+
+	// Some startup flows rebuild UI state after session_start.
+	// Re-apply in a few lightweight hooks plus a short timer burst.
+	pi.on("resources_discover", async (_event, ctx) => {
+		scheduleApplyVim(ctx);
+	});
+	pi.on("model_select", async (_event, ctx) => {
+		scheduleApplyVim(ctx);
+	});
+	pi.on("thinking_level_select", async (_event, ctx) => {
+		scheduleApplyVim(ctx);
 	});
 
 	pi.on("session_shutdown", () => {
+		clearApplyTimers();
 		// Restore terminal cursor to default on shutdown
 		// Write directly to stdout since we may not have UI context
 		process.stdout.write(CURSOR.default);
@@ -1617,8 +1657,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Enable vim mode",
 		handler: async (_args, ctx) => {
 			vimEnabled = true;
-			ctx.ui.setEditorComponent((tui, theme, kb) => new VimEditor(tui, theme, kb));
-			ctx.ui.setStatus("vim", `${S.vim} VIM ${S.R}`);
+			scheduleApplyVim(ctx);
 			ctx.ui.notify("Vim mode enabled", "info");
 		},
 	});
@@ -1627,6 +1666,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Disable vim mode, restore default editor",
 		handler: async (_args, ctx) => {
 			vimEnabled = false;
+			clearApplyTimers();
 			ctx.ui.setEditorComponent(undefined);
 			ctx.ui.setStatus("vim", undefined);
 			// Restore cursor shape to terminal default

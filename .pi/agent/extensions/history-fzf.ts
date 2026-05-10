@@ -3,9 +3,9 @@ import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { Focusable } from "@mariozechner/pi-tui";
-import { Input, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Focusable } from "@earendil-works/pi-tui";
+import { Input, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 interface HistoryItem {
   text: string;

@@ -67,6 +67,7 @@ alias ls="eza"
 alias cat="bat"
 alias nvim-new="ghostty -e nvim"
 alias p="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --no-tools --no-extensions --no-skills --no-themes --no-prompt-templates -p $@"
+alias pinvim="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --append-system-prompt 'Be extremely precise: only make the exact changes the user explicitly requests. Do not expand into unrelated files or add extra modifications. In this IDE setup, avoid any changes outside the user-specified scope. Append these instructions to the existing system prompt.'"
 
 pass-agent() {
   pass-login

@@ -3,8 +3,8 @@ import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import { extname, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import ignore from "ignore";
 import {
   buildHashlinePreview,

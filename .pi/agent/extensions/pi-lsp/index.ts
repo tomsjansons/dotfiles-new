@@ -29,7 +29,7 @@
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import {
@@ -51,9 +51,9 @@ import {
 	StreamMessageReader,
 	StreamMessageWriter,
 	WorkspaceSymbolRequest,
-} from "vscode-languageserver-protocol/node";
+} from "vscode-languageserver-protocol/node.js";
 
-import { getActiveServerNames, getServerForFile, isServerActive, type LSPServerConfig, loadConfig } from "./config.js";
+import { getActiveServerNames, getServerForFile, isServerActive, type LSPServerConfig, loadConfig } from "./config.ts";
 
 // ============================================================================
 // Types
@@ -371,7 +371,7 @@ const applyWorkspaceEdit = (edit: WorkspaceEdit): string[] => {
 export default function lspExtension(pi: ExtensionAPI) {
 	// Skip registration in recursive children — LSP is expensive and children
 	// do focused subtasks that don't need code intelligence.
-	const depth = parseInt(process.env.RLM_DEPTH || "0", 10);
+	const depth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? process.env.RLM_DEPTH ?? "0", 10);
 	if (depth > 0) return;
 	let cwd = process.cwd();
 	let config = loadConfig(cwd);
@@ -491,7 +491,7 @@ export default function lspExtension(pi: ExtensionAPI) {
 				workspaceFolders: [{ uri: fileToUri(cwd), name: path.basename(cwd) }],
 			});
 
-			client.capabilities = result.capabilities;
+			client.capabilities = result.capabilities as unknown as ServerCapabilities;
 			connection.sendNotification(InitializedNotification.type, {});
 			client.ready = true;
 
@@ -693,11 +693,11 @@ export default function lspExtension(pi: ExtensionAPI) {
 			(d) => d.range.start.line <= range.end.line && d.range.end.line >= range.start.line,
 		);
 
-		const actions = await client.connection.sendRequest(CodeActionRequest.type, {
+		const actions = (await client.connection.sendRequest(CodeActionRequest.type as any, {
 			textDocument: { uri },
 			range,
 			context: { diagnostics: relevantDiags, only: kind ? [kind] : undefined },
-		});
+		})) as Array<CodeAction | { title: string }> | null;
 
 		if (!actions?.length) return "No code actions available.";
 		const codeActions = actions.filter((a): a is CodeAction => "title" in a);
@@ -1041,6 +1041,7 @@ export default function lspExtension(pi: ExtensionAPI) {
 						if (!p.file || !p.line || !p.new_name)
 							return {
 								content: [{ type: "text" as const, text: "Error: file, line, and new_name required" }],
+								details: undefined,
 							};
 						result = await handleRename(
 							{ file: p.file, line: p.line, character: p.character || 1 },
@@ -1110,6 +1111,7 @@ export default function lspExtension(pi: ExtensionAPI) {
 						if (!p.pattern || !p.replacement)
 							return {
 								content: [{ type: "text" as const, text: "Error: pattern and replacement required" }],
+								details: undefined,
 							};
 						result = await handleSSR(p.pattern, p.replacement, p.apply === true);
 						break;

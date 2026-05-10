@@ -2,10 +2,10 @@ import { Dirent } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Text } from "@mariozechner/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import ignore from "ignore";
 
 import {
