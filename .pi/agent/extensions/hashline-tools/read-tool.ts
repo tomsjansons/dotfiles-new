@@ -63,12 +63,25 @@ function firstTextLine(result: AgentToolResult<any>): string | undefined {
 	return content.text.split("\n")[0];
 }
 
+function singleLineImageReadResult(result: AgentToolResult<any>): AgentToolResult<any> {
+	const text = result.content
+		.find((content) => content?.type === "text" && typeof content.text === "string")
+		?.text.split("\n")
+		.find((line) => line.trim() !== "")
+		?.trim();
+
+	return {
+		...result,
+		content: [{ type: "text", text: text ?? "Read image file" }],
+	};
+}
+
 export function registerReadTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "read",
 		label: "read",
 		description:
-			"Read file contents with LINE#ID hash anchors. Text files are returned as LINE#ID:content so later edit calls can target exact lines and fail safely if the file changed since it was read. Images are handled like the built-in read tool.",
+			"Read file contents with LINE#ID hash anchors. Text files are returned as LINE#ID:content so later edit calls can target exact lines and fail safely if the file changed since it was read. Image reads return a one-line note without inline image preview.",
 		promptSnippet: "Read file contents with LINE#ID hash anchors",
 		promptGuidelines: [
 			"Use read to examine files instead of cat or sed.",
@@ -82,7 +95,8 @@ export function registerReadTool(pi: ExtensionAPI): void {
 
 			if (isImagePath(path)) {
 				const imageRead = createReadTool(ctx.cwd);
-				return imageRead.execute(toolCallId, { ...params, path }, signal);
+				const imageResult = await imageRead.execute(toolCallId, { ...params, path }, signal);
+				return singleLineImageReadResult(imageResult);
 			}
 
 			if (signal?.aborted) throw new Error("Operation aborted");

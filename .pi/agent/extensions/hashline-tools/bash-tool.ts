@@ -222,7 +222,7 @@ function fallbackCommandSummary(command: unknown): string | undefined {
   const fallback = normalizeCommand(command);
   if (!fallback || fallback === "<unknown>") return fallback;
   const tool = inferCommandTool(command);
-  return tool ? `${tool}: ${fallback}` : fallback;
+  return shorten(tool ? `${tool}: ${fallback}` : fallback, MAX_SUMMARY_CHARS);
 }
 
 function summarizeOneSentence(text: unknown, signal?: AbortSignal, options?: { command?: unknown }): Promise<SummaryResult> {
@@ -388,10 +388,16 @@ export function registerBashTool(pi: ExtensionAPI): void {
         emitUpdate(latestUpdate ?? { content: [], details: undefined }, false);
       };
 
-      const commandSummaryPromise = summarizeOneSentence(command, signal, { command }).then((summary) => {
-        latestCommandSummary = summary;
+      const fallbackSummary = fallbackCommandSummary(command);
+      if (fallbackSummary) {
+        latestCommandSummary = { summary: fallbackSummary };
         emitSummaryUpdate();
-        return summary;
+      }
+
+      const commandSummaryPromise = summarizeOneSentence(command, signal, { command }).then((summary) => {
+        latestCommandSummary = summary.summary ? summary : { ...summary, summary: fallbackSummary };
+        emitSummaryUpdate();
+        return latestCommandSummary;
       });
 
       const wrappedOnUpdate = onUpdate
@@ -412,7 +418,7 @@ export function registerBashTool(pi: ExtensionAPI): void {
       }
 		},
 		renderCall(args, theme, context) {
-			if (!context.isPartial) return emptyToolRow();
+			if (context.executionStarted || !context.isPartial) return emptyToolRow();
 			return renderToolText((width) => formatBashRow("pending", args, theme, "", undefined, undefined, width));
 		},
     renderResult(result, { isPartial }, theme, context) {
