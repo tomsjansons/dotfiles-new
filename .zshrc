@@ -28,8 +28,6 @@ eval "$(mise activate zsh)"
 
 source <(fzf --zsh)
 
-source <(jj util completion zsh)
-
 alias lazynvim='NVIM_APPNAME=nvimlazy nvim'
 export EDITOR='nvim'
 export VISUAL='ghostty -e nvim'
