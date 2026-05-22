@@ -9,7 +9,7 @@
  *   INSERT  — Default on open/input. Shift+Enter = new line. Enter submits prompt. Escape = normal mode.
  *   VISUAL  — Character selection (v). Operators act on selection.
  *   V-LINE  — Line selection (V). Operators act on selected lines.
- *   COMMAND — Ex commands (:w submit, :q exit, :n new session).
+ *   COMMAND — Ex commands (:w submit, :q exit, :n new session, :tree/:resume/etc. run Pi commands).
  *
  * Commands:
  *   /vim    — Enable vim mode
@@ -1499,6 +1499,10 @@ class VimEditor extends CustomEditor {
 					// :42 → go to line 42
 					const n = parseInt(cmd, 10) - 1;
 					this.setPos({ line: n, col: this.firstNonBlank(Math.min(n, this.lc() - 1)) });
+				} else if (/^[A-Za-z][\w-]*(?:\s+.*)?$/.test(cmd)) {
+					// Forward non-editor Ex commands to Pi's slash-command handler.
+					// Examples: :tree → /tree, :resume → /resume, :compact note → /compact note.
+					this.submitSlashCommand(`/${cmd}`);
 				} else {
 					this.showInfo(`E492: Not an editor command: ${cmd}`);
 				}

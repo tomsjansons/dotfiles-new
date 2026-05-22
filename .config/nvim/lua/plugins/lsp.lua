@@ -7,12 +7,17 @@ vim.pack.add({
 })
 
 require("mason").setup()
-require("mason-lspconfig").setup({
-	automatic_enable = {
-		exclude = { "ts_ls", "vtsls" },
-	},
-})
+-- Do not call mason-lspconfig.setup() on startup: it refreshes the
+-- Mason registry. LSP servers are enabled explicitly below.
 require("mason-tool-installer").setup({
+  -- Avoid Mason registry/tool checks on every new Neovim session.
+  -- Run :MasonToolsUpdate when you want to install/update tools.
+  run_on_start = false,
+	integrations = {
+		["mason-lspconfig"] = true,
+		["mason-null-ls"] = false,
+		["mason-nvim-dap"] = false,
+	},
 	ensure_installed = {
 		"lua_ls",
 		"stylua",
@@ -66,6 +71,18 @@ vim.lsp.config("zls", {
 		},
 	},
 })
+
+vim.defer_fn(function()
+  vim.lsp.enable({
+    "lua_ls",
+    "denols",
+    "tsgo",
+    "gopls",
+    "rust_analyzer",
+    "kotlin_lsp",
+    "zls",
+  })
+end, 500)
 
 require("lspsaga").setup({
 	code_action = {

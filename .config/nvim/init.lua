@@ -9,7 +9,12 @@ require("plugins/completions")
 require("ai")
 require("plugins/catppuccin")
 require("plugins/mini-icons")
-require("plugins/lsp")
+vim.api.nvim_create_autocmd("UIEnter", {
+  once = true,
+  callback = function()
+    require("plugins/lsp")
+  end,
+})
 require("plugins/mini-pairs")
 require("plugins/formatter")
 require("plugins/nvim-surround")

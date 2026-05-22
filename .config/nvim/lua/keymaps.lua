@@ -25,25 +25,50 @@ vim.api.nvim_create_user_command("Q", "q", {})
 vim.api.nvim_create_user_command("Qa", "qa", {})
 vim.api.nvim_create_user_command("QA", "qa", {})
 
-local function is_buf_in_cwd(bufnr, cwd)
-	if not vim.api.nvim_buf_is_valid(bufnr) or not vim.bo[bufnr].buflisted then
-		return false
-	end
+local ignored_buffer_extensions = {
+   bmp = true,
+   gif = true,
+   jpeg = true,
+   jpg = true,
+   pdf = true,
+   png = true,
+   svg = true,
+   webp = true,
+}
 
-	local name = vim.api.nvim_buf_get_name(bufnr)
-	if name == "" then
-		return false
-	end
+local function buffer_fallback_root(bufnr)
+   local name = vim.api.nvim_buf_get_name(bufnr)
+   if name == "" then
+      return vim.fs.normalize(vim.uv.cwd())
+   end
 
-	local path = vim.fs.normalize(vim.uv.fs_realpath(name) or name)
-	local root = vim.fs.normalize(cwd)
+   return vim.fs.normalize(vim.fs.root(name, { ".git" }) or vim.fs.dirname(name) or vim.uv.cwd())
+end
 
-	if path == root then
-		return true
-	end
+local function is_buf_in_root(bufnr, root)
+   if not vim.api.nvim_buf_is_valid(bufnr) or not vim.bo[bufnr].buflisted or vim.bo[bufnr].buftype ~= "" then
+      return false
+   end
 
-	local prefix = root:sub(-1) == "/" and root or (root .. "/")
-	return vim.startswith(path, prefix)
+   local name = vim.api.nvim_buf_get_name(bufnr)
+   if name == "" then
+      return false
+   end
+
+   local extension = vim.fn.fnamemodify(name, ":e"):lower()
+   if ignored_buffer_extensions[extension] then
+      return false
+   end
+
+   local path = vim.fs.normalize(vim.uv.fs_realpath(name) or name)
+   root = vim.fs.normalize(root)
+
+   if path == root then
+      return true
+   end
+
+   local prefix = root:sub(-1) == "/" and root or (root .. "/")
+   return vim.startswith(path, prefix)
 end
 
 function StepBackJumplist(original_buf)
@@ -54,13 +79,14 @@ function StepBackJumplist(original_buf)
 	local jumplist = vim.fn.getjumplist()
 	local jumps = jumplist[1]
 	local jumpPos = jumplist[2]
-	local cwd = vim.uv.cwd()
+	local root = buffer_fallback_root(original_buf)
 
 	for i = jumpPos, 1, -1 do
 		local jump = jumps[i]
-		if jump.bufnr ~= original_buf and is_buf_in_cwd(jump.bufnr, cwd) then
+		if jump.bufnr ~= original_buf and is_buf_in_root(jump.bufnr, root) then
 			vim.api.nvim_win_set_buf(0, jump.bufnr)
-			vim.api.nvim_win_set_cursor(0, { jump.lnum, jump.col })
+			local line_count = vim.api.nvim_buf_line_count(jump.bufnr)
+			vim.api.nvim_win_set_cursor(0, { math.min(jump.lnum, line_count), jump.col })
 			return
 		end
 	end

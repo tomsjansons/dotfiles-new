@@ -1,0 +1,14 @@
+enabled_backends = ["arch", "flatpak", "cargo", "pnpm", "mise"]
+
+[hostname_groups]
+pc = ["relative_group", "/etc/absolute_group"]
+laptop = ["relative_group"]
+server = ["relative_group"]
+
+[arch]
+package_manager = "paru"
+
+[cargo]
+locked = false
+binstall = true
+

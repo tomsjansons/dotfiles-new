@@ -58,13 +58,12 @@ local function git_status_for_file_browser(status)
 end
 
 local function git_last_commit_files(root)
-	local output = vim.fn.system({
+	local output = vim.fn.systemlist({
 		"git",
 		"-C",
 		root,
 		"diff",
 		"--name-status",
-		"-z",
 		"--find-renames",
 		"HEAD~1",
 		"HEAD",
@@ -75,25 +74,14 @@ local function git_last_commit_files(root)
 		return nil, nil
 	end
 
-	local parts = vim.split(output, "\0", { plain = true, trimempty = true })
 	local files = {}
 	local statuses = {}
-	local index = 1
 
-	while index <= #parts do
-		local status = parts[index]
+	for _, line in ipairs(output) do
+		local parts = vim.split(line, "\t", { plain = true })
+		local status = parts[1] or ""
 		local status_kind = status:sub(1, 1)
-		index = index + 1
-
-		local path
-		if status_kind == "R" or status_kind == "C" then
-			index = index + 1
-			path = parts[index]
-			index = index + 1
-		else
-			path = parts[index]
-			index = index + 1
-		end
+		local path = (status_kind == "R" or status_kind == "C") and parts[3] or parts[2]
 
 		if path and path ~= "" then
 			local absolute_path = root .. "/" .. path
@@ -129,6 +117,7 @@ local function open_git_last_commit_files()
 
 	local finders = require("telescope.finders")
 	local previewers = require("telescope.previewers")
+	local preview_utils = require("telescope.previewers.utils")
 
 	local function browse_changed_files(opts)
 		return finders.new_table({
@@ -140,16 +129,30 @@ local function open_git_last_commit_files()
 		})
 	end
 
-	local diff_previewer = previewers.new_termopen_previewer({
+	local diff_previewer = previewers.new_buffer_previewer({
 		title = "Diff",
-		cwd = root,
-		get_command = function(entry)
+		get_buffer_by_name = function(_, entry)
+			return entry and entry.path and ("HEAD~1..HEAD:" .. entry.path) or nil
+		end,
+		define_preview = function(self, entry)
 			if not entry or not entry.path then
-				return nil
+				return
 			end
 
 			local relpath = entry.path:sub(#root + 2)
-			return { "git", "diff", "--color=always", "--find-renames", "HEAD~1", "HEAD", "--", relpath }
+			local cmd =
+				{ "git", "--no-pager", "diff", "--no-ext-diff", "--find-renames", "HEAD~1", "HEAD", "--", relpath }
+
+			preview_utils.job_maker(cmd, self.state.bufnr, {
+				cwd = root,
+				value = relpath,
+				bufname = self.state.bufname,
+				callback = function(bufnr)
+					if vim.api.nvim_buf_is_valid(bufnr) then
+						preview_utils.highlighter(bufnr, "diff", {})
+					end
+				end,
+			})
 		end,
 	})
 
@@ -180,7 +183,11 @@ require("gitsigns").setup({
 	current_line_blame = true,
 })
 
-vim.keymap.set("n", "<leader>gc", function()
+local function git_last_commit_signs_desc()
+	return git_last_commit_signs and "[g]it signs: last [c]ommit shown" or "[g]it signs: [c]urrent changes shown"
+end
+
+local function toggle_git_last_commit_signs()
 	local gitsigns = require("gitsigns")
 
 	if git_last_commit_signs then
@@ -202,7 +209,11 @@ vim.keymap.set("n", "<leader>gc", function()
 		git_last_commit_signs = true
 		vim.notify("Gitsigns: last commit view (HEAD vs HEAD~1)")
 	end
-end, { desc = "[g]it last [c]ommit view toggle" })
+
+	vim.keymap.set("n", "<leader>gc", toggle_git_last_commit_signs, { desc = git_last_commit_signs_desc() })
+end
+
+vim.keymap.set("n", "<leader>gc", toggle_git_last_commit_signs, { desc = git_last_commit_signs_desc() })
 
 vim.keymap.set("n", "<leader>C", open_git_last_commit_files, { desc = "Git last commit files" })
 

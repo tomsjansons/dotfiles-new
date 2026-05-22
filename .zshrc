@@ -46,7 +46,6 @@ export PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin
 export PATH="/home/toms/.bun/bin:$PATH"
 export PATH=$PATH:/home/toms/.turso
 export PATH=$PATH:/home/toms/.local/bin/
-export PATH=$PATH:/home/toms/.local/share/pnpm/
 export PATH=$PATH:/home/toms/.cargo/bin/
 export PATH=$PATH:/home/toms/.local/share/nvim/mason/bin/
 export PATH=$PATH:/home/toms/.local/share/nvimtj/mason/bin/
@@ -67,7 +66,7 @@ alias ls="eza"
 alias cat="bat"
 alias nvim-new="ghostty -e nvim"
 alias p="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --no-tools --no-extensions --no-skills --no-themes --no-prompt-templates -p $@"
-alias pinvim="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --append-system-prompt 'Be extremely precise: only make the exact changes the user explicitly requests. Do not expand into unrelated files or add extra modifications. In this IDE setup, avoid any changes outside the user-specified scope. Append these instructions to the existing system prompt.'"
+alias pinvim="pi --model openai-codex/gpt-5.5 --thinking low --append-system-prompt '<CRITICAL>Be extremely precise: only make the exact changes the user explicitly requests. Do not expand into unrelated files or add extra modifications. In this IDE setup, avoid any changes outside the user-specified scope. It is ok to leave broken state as we are working on incremental changes and will resolve any conflicts or compile errors eventually. If the requested changes span more files than the user requests, point that out in the response but do not peform any additional changes without explicit user confirmation. Reread state between user messages as the user will make manual edits - these manual edits NEED to be preserved unless the users asks them to be changed. Do not make style changed unless the user explicitly asks.</CRITICAL>'"
 
 pass-agent() {
   pass-login
@@ -105,13 +104,60 @@ z() {
   zellij "$@"
 }
 
-export PNPM_HOME="/home/toms/.local/share/pnpm"
+ k3s-local() {
+   case "$1" in
+     up|start)
+       echo "Starting iSCSI daemon..."
+       sudo systemctl start iscsid.service
 
+       echo "Starting k3s..."
+       sudo systemctl start k3s.service
+
+       echo "Cluster status:"
+       sudo systemctl --no-pager --full status iscsid.service k3s.service
+       ;;
+
+     down|stop)
+       echo "Stopping k3s..."
+       sudo systemctl stop k3s.service
+
+       if [[ -x /usr/local/bin/k3s-killall.sh ]]; then
+         echo "Cleaning up k3s containers, networking, and mounts..."
+         sudo /usr/local/bin/k3s-killall.sh
+       fi
+
+       echo "Stopping iSCSI daemon..."
+       sudo systemctl stop iscsid.service
+
+       echo "Clearing stale iSCSI unit failures..."
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+
+       echo "Cluster stopped."
+       ;;
+
+     status)
+       sudo systemctl --no-pager --full status k3s.service iscsid.service iscsi.service iscsid.socket
+       ;;
+
+     disable-autostart)
+       echo "Disabling k3s and iSCSI autostart..."
+       sudo systemctl disable k3s.service
+       sudo systemctl disable iscsi.service iscsid.socket iscsid.service
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+       ;;
+
+     *)
+       echo "Usage: k3s-local {up|down|status|disable-autostart}"
+       return 2
+       ;;
+   esac
+ }
+
+export PNPM_HOME="/home/toms/.local/share/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
-# pnpm end
 
 if command -v wt >/dev/null 2>&1; then eval "$(command wt config shell init zsh)"; fi
 
@@ -147,4 +193,5 @@ fi
 export FORGE_EDITOR="nvim"
 # <<< forge initialize <<<
 #
+
 

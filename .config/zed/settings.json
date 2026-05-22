@@ -7,6 +7,124 @@
 // custom settings, run `zed: open default settings` from the
 // command palette
 {
+  "cli_default_open_behavior": "existing_window",
+  "language_models": {
+    "openai_compatible": {
+      "Tensorx": {
+        "api_url": "https://api.tensorix.ai/v1",
+        "available_models": [
+          {
+            "name": "z-ai/glm-5.1",
+            "max_tokens": 200000,
+            "max_output_tokens": 32000,
+            "max_completion_tokens": 200000,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          },
+          {
+            "name": "moonshotai/Kimi-K2.6",
+            "max_tokens": 200000,
+            "max_output_tokens": 32000,
+            "max_completion_tokens": 200000,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          },
+          {
+            "name": "deepseek/deepseek-v4-pro",
+            "max_tokens": 200000,
+            "max_output_tokens": 32000,
+            "max_completion_tokens": 200000,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          }
+        ]
+      },
+      "Inceptron": {
+        "api_url": "https://openrouter.inceptron.io/v1",
+        "available_models": [
+          {
+            "name": "moonshotai/Kimi-K2.6",
+            "max_tokens": 256000,
+            "max_output_tokens": 256000,
+            "max_completion_tokens": 256000,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          },
+          {
+            "name": "zai-org/GLM-5.1-FP8",
+            "max_tokens": 202752,
+            "max_output_tokens": 202752,
+            "max_completion_tokens": 202752,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          },
+          {
+            "name": "MiniMaxAI/MiniMax-M2.5",
+            "max_tokens": 196608,
+            "max_output_tokens": 196608,
+            "max_completion_tokens": 196608,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": false,
+              "prompt_cache_key": false,
+              "chat_completions": true,
+              "interleaved_reasoning": false
+            }
+          }
+        ]
+      }
+    }
+  },
+  "outline_panel": {
+    "dock": "left"
+  },
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "agent": {
+    "default_model": {
+      "provider": "openai-subscribed",
+      "model": "gpt-5.5",
+      "enable_thinking": true
+    },
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": []
+  },
+  "git_panel": {
+    "dock": "left"
+  },
   "vim_mode": true,
   "ui_font_size": 16,
   "buffer_font_size": 16,

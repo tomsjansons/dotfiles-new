@@ -2,6 +2,6 @@
 
 Feedback log. Repeated/systemic workflow friction that should become future automation, docs, or workflow fixes.
 
-## 26-05-10 12:55 — missing_check_tooling
+## 26-05-10 11:13 — symlinked_worktree_status
 
-Could not run a real TypeScript type/build check for the hashline-tools extension: the workspace has no TypeScript dependency/scripts, and the globally available esbuild shim points to a missing binary. I fell back to `node --check bash-tool.ts`. Adding a workspace `check` script plus TypeScript (or fixing the global esbuild install) would prevent this repeated validation backtracking.
+Git status/diff reported .pi/agent/extensions/hashline-tools/bash-tool.ts as deleted because .pi/agent/extensions is a symlink to .dotfiles/.pi/agent/extensions, while the edit/read tools followed the live symlink target. I had to repeat path/status checks from both the cwd and repo root to confirm the actual edited file. A workspace-aware diff/status helper that resolves symlink targets before invoking git would prevent this backtracking.

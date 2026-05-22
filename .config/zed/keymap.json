@@ -1,11 +1,107 @@
 // Zed keymap
-//
-// For information on binding keys, see the Zed
-// documentation: https://zed.dev/docs/key-bindings
-//
-// To see the default key bindings run `zed: open default keymap`
-// from the command palette.
 [
+  {
+    "context": "Editor || Terminal || ProjectPanel || Dock",
+    "bindings": {
+      "ctrl-h": "workspace::ActivatePaneLeft",
+      "ctrl-l": "workspace::ActivatePaneRight",
+      "ctrl-k": "workspace::ActivatePaneUp",
+      "ctrl-j": "workspace::ActivatePaneDown"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "ctrl-o": "projects::OpenRecent",
+      "ctrl-shift-t": "workspace::NewFile",
+      "ctrl-shift-h": "pane::ActivatePreviousItem",
+      "ctrl-shift-l": "pane::ActivateNextItem",
+
+      "space f": "file_finder::Toggle",
+      "space shift-f": "file_finder::Toggle",
+      "space s f": "file_finder::Toggle",
+      "space s g": "workspace::NewSearch",
+      "space s r": ["pane::DeploySearch", { "replace_enabled": true }],
+      "space s w": "workspace::NewSearch",
+
+      "space b": "tab_switcher::Toggle",
+      "space D": "pane::CloseActiveItem",
+
+      "space t n": "workspace::NewFile",
+      "space t c": "pane::CloseActiveItem",
+
+      "space E": "project_panel::ToggleFocus",
+      "space e": "pane::RevealInProjectPanel",
+
+      "space u": "editor::Undo",
+
+      "space g p": "git::Diff",
+      "space g d f": "git::FileHistory",
+      "space g d h": "git_graph::Open",
+      "space g c": "editor::ToggleGitBlameInline",
+      "space C": "git::OpenModifiedFiles",
+      "space g h d": "editor::ToggleSelectedDiffHunks",
+      "space g h r": "git::Restore",
+      "space g g p": "git::CreatePullRequest",
+      "space g g r": "git::ReviewDiff",
+
+      "space d b": "editor::ToggleBreakpoint",
+      "space d r": "debugger::Continue",
+      "space d u": "debug_panel::ToggleFocus",
+
+      "space a o": "agent::Chat",
+      "space a p": "agent::ToggleFocus",
+      "space a f": "agent::AddSelectionToThread",
+      "space a s": "agent::AddSelectionToThread",
+      "space a b": "agent::AddSelectionToThread",
+      "space a i": "agent::ToggleFocus"
+    }
+  },
+  {
+    "context": "Editor && VimControl && !menu",
+    "bindings": {
+      "gd": "editor::GoToDefinition",
+      "g O": "outline::Toggle",
+      "gr": "editor::FindAllReferences",
+      "K": "editor::Hover",
+      "gx": "editor::OpenUrl",
+
+      "space c a": "editor::ToggleCodeActions",
+      "space c D": "diagnostics::Deploy",
+      "space c d": "diagnostics::DeployCurrentFile",
+      "space c r": "editor::Rename",
+      "space c o": "outline::Toggle",
+
+      "m": "debugger::StepOver",
+      "shift-m": "debugger::StepInto",
+      "ctrl-m": "debugger::StepOut",
+
+      "=": "vim::ResizePaneRight",
+      "-": "vim::ResizePaneLeft",
+      "+": "vim::ResizePaneDown",
+      "_": "vim::ResizePaneUp"
+    }
+  },
+  {
+    "context": "Editor && vim_mode == normal && !menu",
+    "bindings": {
+      "j": ["vim::Down", { "display_lines": true }],
+      "k": ["vim::Up", { "display_lines": true }]
+    }
+  },
+  {
+    "context": "Editor && vim_mode == visual && !menu",
+    "bindings": {
+      "j": ["vim::Down", { "display_lines": true }],
+      "k": ["vim::Up", { "display_lines": true }],
+      "shift-s": [
+        "vim::PushOperator",
+        {
+          "AddSurrounds": {}
+        }
+      ]
+    }
+  },
   {
     "context": "ProjectPanel",
     "bindings": {
@@ -13,36 +109,12 @@
     }
   },
   {
-    "context": "Editor && vim_mode == normal",
-    "bindings": {
-      "-": "project_panel::ToggleFocus"
-    }
-  },
-  {
-    "context": "Workspace && vim_mode == normal",
-    "bindings": {
-      "-": "project_panel::ToggleFocus",
-      "space s f": "file_finder::Toggle"
-    }
-  },
-  {
     "context": "Dock",
     "bindings": {
-      "ctrl-w h": ["workspace::ActivatePaneInDirection", "Left"],
-      "ctrl-w l": ["workspace::ActivatePaneInDirection", "Right"],
-      "ctrl-w k": ["workspace::ActivatePaneInDirection", "Up"],
-      "ctrl-w j": ["workspace::ActivatePaneInDirection", "Down"]
-    }
-  },
-  {
-    "context": "vim_mode == visual",
-    "bindings": {
-      "shift-s": [
-        "vim::PushOperator",
-        {
-          "AddSurrounds": {}
-        }
-      ]
+      "ctrl-w h": "workspace::ActivatePaneLeft",
+      "ctrl-w l": "workspace::ActivatePaneRight",
+      "ctrl-w k": "workspace::ActivatePaneUp",
+      "ctrl-w j": "workspace::ActivatePaneDown"
     }
   }
 ]
