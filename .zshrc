@@ -1,5 +1,4 @@
-# Added by ForgeCode installer
-export PATH="/home/toms/.local/bin:$PATH"
+
 # Lines configured by zsh-newuser-install
 HISTFILE=~/.histfile
 HISTSIZE=1000
@@ -28,7 +27,6 @@ eval "$(mise activate zsh)"
 
 source <(fzf --zsh)
 
-alias lazynvim='NVIM_APPNAME=nvimlazy nvim'
 export EDITOR='nvim'
 export VISUAL='ghostty -e nvim'
 
@@ -37,6 +35,7 @@ export PATH="$PATH:/home/toms/.lmstudio/bin"
 
 source <(niri completions zsh)
 
+export PATH="/home/toms/.local/bin:$PATH"
 export PATH="/home/toms/.bun/bin:$PATH"
 export ANDROID_HOME='/opt/android-sdk/'
 export NDK_HOME='/opt/android-ndk/'
@@ -160,36 +159,3 @@ esac
 if command -v wt >/dev/null 2>&1; then eval "$(command wt config shell init zsh)"; fi
 
 if command -v pulumi >/dev/null 2>&1; then eval "$(command pulumi completion zsh)"; fi
-
-
-
-
-# >>> forge initialize >>>
-# !! Contents within this block are managed by 'forge zsh setup' !!
-# !! Do not edit manually - changes will be overwritten !!
-
-# Add required zsh plugins if not already present
-if [[ ! " ${plugins[@]} " =~ " zsh-autosuggestions " ]]; then
-    plugins+=(zsh-autosuggestions)
-fi
-if [[ ! " ${plugins[@]} " =~ " zsh-syntax-highlighting " ]]; then
-    plugins+=(zsh-syntax-highlighting)
-fi
-
-# Load forge shell plugin (commands, completions, keybindings) if not already loaded
-if [[ -z "$_FORGE_PLUGIN_LOADED" ]]; then
-    eval "$(forge zsh plugin)"
-fi
-
-# Load forge shell theme (prompt with AI context) if not already loaded
-if [[ -z "$_FORGE_THEME_LOADED" ]]; then
-    eval "$(forge zsh theme)"
-fi
-
-# Editor for editing prompts (set during setup)
-# To change: update FORGE_EDITOR or remove to use $EDITOR
-export FORGE_EDITOR="nvim"
-# <<< forge initialize <<<
-#
-
-
