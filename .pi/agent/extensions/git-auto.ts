@@ -7,6 +7,7 @@ const STATE_TYPE = "git-auto-state";
 const COMMIT_TIMEOUT_MS = 30_000;
 const MESSAGE_TIMEOUT_MS = 60_000;
 const MAX_AGENT_RESPONSE_CHARS = 4_000;
+const MAX_CHANGE_SUMMARY_CHARS = 6_000;
 const PROTECTED_BRANCHES = new Set(["main", "master"]);
 const MUTATION_TOOLS = new Set(["edit", "write"]);
 
@@ -207,32 +208,50 @@ function cleanCommitMessage(message: string): string | undefined {
 	return normalized.toLowerCase().startsWith("ai: ") ? normalized : `ai: ${normalized}`;
 }
 
+async function buildStagedChangeSummary(root: string, paths: string[]): Promise<string | undefined> {
+	try {
+		const stat = (await execGit(["-C", root, "diff", "--cached", "--stat", "--", ...paths])).stdout.trim();
+		const diff = (await execGit(["-C", root, "diff", "--cached", "--unified=1", "--no-ext-diff", "--", ...paths])).stdout.trim();
+		const summary = [stat ? `Diff stat:\n${stat}` : undefined, diff ? `Patch excerpt:\n${diff}` : undefined]
+			.filter(Boolean)
+			.join("\n\n");
+
+		return summary ? summary.slice(0, MAX_CHANGE_SUMMARY_CHARS) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function buildCommitMessageFromAgentResponse(
 	root: string,
 	statuses: StatusEntry[],
 	agentResponse: string | undefined,
+	changeSummary: string | undefined,
 ): Promise<string | undefined> {
-	if (!agentResponse) return undefined;
-
+	if (!agentResponse && !changeSummary) return undefined;
 	const fallback = buildCommitMessage(statuses);
 	const prompt = [
 		"Write a concise Git commit subject for the completed coding-agent work.",
-		"Use the agent's final response as the primary source of intent.",
+		"Infer the actual user-visible change from the staged diff and agent final response.",
+		"Use changed filenames only as supporting context, not as the subject.",
 		"Rules:",
 		"- Return exactly one line, no markdown, no quotes.",
 		"- Start with \"ai: \".",
 		"- Use imperative mood after the prefix, e.g. \"ai: improve git-auto commit subjects\".",
-		"- Be specific about the user-visible change, not just the filenames.",
+		"- Describe the change, not the files or directories touched.",
 		"- Keep it under 72 characters.",
 		"",
 		"Changed files:",
 		...statuses.map((entry) => `- ${entry.code.trim() || "M"} ${entry.path}`),
 		"",
-		"Fallback if the response is unclear:",
-		fallback,
+		"Staged change evidence:",
+		changeSummary ?? "(unavailable)",
 		"",
 		"Agent final response:",
-		agentResponse.slice(0, MAX_AGENT_RESPONSE_CHARS),
+		agentResponse?.slice(0, MAX_AGENT_RESPONSE_CHARS) ?? "(unavailable)",
+		"",
+		"Fallback only if the change intent is unclear:",
+		fallback,
 	].join("\n");
 
 	try {
@@ -322,7 +341,8 @@ async function commitFiles(
 	const statuses = parsePorcelainStatus(statusOutput);
 	if (statuses.length === 0) return { committed: false, skipped: "no git changes" };
 
-	const message = (await buildCommitMessageFromAgentResponse(git.root, statuses, agentResponse)) ?? buildCommitMessage(statuses);
+	const changeSummary = await buildStagedChangeSummary(git.root, paths);
+	const message = (await buildCommitMessageFromAgentResponse(git.root, statuses, agentResponse, changeSummary)) ?? buildCommitMessage(statuses);
 	await execGit(["-C", git.root, "commit", "-m", message, "--", ...paths]);
 	return { committed: true, message };
 }
