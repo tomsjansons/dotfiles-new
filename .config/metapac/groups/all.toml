@@ -102,6 +102,7 @@ arch = { packages = [
   "neofetch", # System information summary tool.
   "neovim", # Primary terminal editor/IDE.
   "neovim-remote", # Remote-control helper for Neovim instances.
+  "networkmanager", # Netowrk manager for all network related things
   "ngrok", # Tunnel client for exposing local development servers.
   "niri", # Scrollable-tiling Wayland compositor.
   "noctalia-shell", # Desktop shell components/theme, likely used with your Wayland setup.
