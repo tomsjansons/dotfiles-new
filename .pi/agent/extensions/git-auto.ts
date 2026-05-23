@@ -65,11 +65,11 @@ function execGit(args: string[], options: { cwd?: string; timeoutMs?: number } =
 	});
 }
 
-function execPi(args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<CommandResult> {
+function execP(prompt: string, options: { cwd?: string; timeoutMs?: number } = {}): Promise<CommandResult> {
 	return new Promise((resolve, reject) => {
 		const child = execFile(
-			"pi",
-			args,
+			"p",
+			[prompt],
 			{
 				cwd: options.cwd,
 				encoding: "utf8",
@@ -255,7 +255,7 @@ async function buildCommitMessageFromAgentResponse(
 	].join("\n");
 
 	try {
-		const result = await execPi(["-p", prompt], { cwd: root, timeoutMs: MESSAGE_TIMEOUT_MS });
+		const result = await execP(prompt, { cwd: root, timeoutMs: MESSAGE_TIMEOUT_MS });
 		return cleanCommitMessage(result.stdout);
 	} catch {
 		return undefined;
