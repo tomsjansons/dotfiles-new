@@ -1,2 +1,26 @@
-^\.config/systemd/user/.*\.wants(/|$)
-^\.config/systemd/user/.*\.requires(/|$)
+# Custom ignores
+^/\.config/systemd/user/.*\.wants$
+^/\.config/systemd/user/.*\.requires$
+
+# GNU Stow built-in defaults, repeated here because a local ignore file replaces them
+RCS
+.+,v
+
+CVS
+\.\#.+
+\.cvsignore
+
+\.svn
+_darcs
+\.hg
+
+\.git
+\.gitignore
+\.gitmodules
+
+.+~
+\#.*\#
+
+^/README.*
+^/LICENSE.*
+^/COPYING
