@@ -70,9 +70,11 @@ function singleLineImageReadResult(result: AgentToolResult<any>): AgentToolResul
 		.find((line) => line.trim() !== "")
 		?.trim();
 
+	const images = result.content.filter((content) => content?.type === "image");
+
 	return {
 		...result,
-		content: [{ type: "text", text: text ?? "Read image file" }],
+		content: [{ type: "text", text: text ?? "Read image file" }, ...images],
 	};
 }
 
@@ -81,7 +83,7 @@ export function registerReadTool(pi: ExtensionAPI): void {
 		name: "read",
 		label: "read",
 		description:
-			"Read file contents with LINE#ID hash anchors. Text files are returned as LINE#ID:content so later edit calls can target exact lines and fail safely if the file changed since it was read. Image reads return a one-line note without inline image preview.",
+			"Read file contents with LINE#ID hash anchors. Text files are returned as LINE#ID:content so later edit calls can target exact lines and fail safely if the file changed since it was read. Image reads return a one-line note in the UI while preserving the image attachment for vision-capable models.",
 		promptSnippet: "Read file contents with LINE#ID hash anchors",
 		promptGuidelines: [
 			"Use read to examine files instead of cat or sed.",
