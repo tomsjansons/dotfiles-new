@@ -171,6 +171,12 @@ output "Microstep MSI MP245 PC1M034700358" {
 	transform "normal"
 	position x=3440 y=-1080
 }
+output "Microstep MSI MP245 PC1M034700322" {
+	mode "1920x1080@60"
+	scale 1.0
+	transform "normal"
+	position x=3440 y=-1080
+}
 output "Microstep MSI MP2412 BA9H424201903" {
 	mode "1920x1080@60"
 	scale 1.0

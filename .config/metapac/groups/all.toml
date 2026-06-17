@@ -67,7 +67,6 @@ arch = { packages = [
   "gst-plugin-pipewire", # GStreamer plugin allowing apps to use PipeWire audio/video streams.
   "guestfs-tools", # Tools for inspecting and modifying virtual machine disk images.
   "handy-bin", # Handy utility/app package from AUR; kept for its desktop workflow features.
-  "hoppscotch-bin", # Desktop API client for testing HTTP/GraphQL/WebSocket endpoints.
   "htop", # Interactive process and resource monitor.
   "imagemagick", # Image conversion and manipulation command-line toolkit.
   "intel-media-driver", # Intel VA-API media driver for hardware video acceleration.
@@ -196,6 +195,7 @@ arch = { packages = [
   "xorg-xinit", # startx/xinit support for launching X sessions manually.
   "xorg-xwayland", # Xwayland compatibility server for running X11 apps under Wayland.
   "xwayland-satellite", # Rootless Xwayland helper for compositors without built-in Xwayland management.
+  "yaak",
   "yazi", # Terminal file manager with previews.
   "zed", # Zed code editor.
   "zellij", # Terminal workspace/multiplexer.
