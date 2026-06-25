@@ -12,6 +12,33 @@ zstyle :compinstall filename '/home/toms/.zshrc'
 autoload -Uz compinit
 compinit
 # End of lines added by compinstall
+
+zmodload zsh/datetime 2>/dev/null
+cached-zsh-init() {
+  local name="$1"
+  local generator="$2"
+  local max_age_seconds="${3:-86400}"
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/generated"
+  local cache_file="$cache_dir/$name.zsh"
+  local stamp_file="$cache_file.stamp"
+
+  mkdir -p "$cache_dir"
+
+  [[ -r "$cache_file" ]] && source "$cache_file"
+
+  local now=${EPOCHSECONDS:-$(date +%s)} last=0
+  [[ -r "$stamp_file" ]] && last=$(<"$stamp_file")
+  (( now - last < max_age_seconds )) && return
+
+  {
+    local tmp="$cache_file.tmp.$$"
+    if eval "$generator" >| "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+      mv "$tmp" "$cache_file"
+      print -r -- "${EPOCHSECONDS:-$(date +%s)}" >| "$stamp_file"
+    fi
+    rm -f "$tmp"
+  } &!
+}
 #
 
 bindkey "^[[H" beginning-of-line
@@ -22,18 +49,21 @@ bindkey "^[[1;5C" forward-word
 
 
 eval "$(oh-my-posh init zsh --config /home/toms/.config/oh-my-posh/amro.omp.json)"
-eval $(luarocks path)
+cached-zsh-init luarocks 'command luarocks path --no-bin'
+export PATH="$HOME/.luarocks/bin:$PATH"
 eval "$(mise activate zsh)"
 
-source <(fzf --zsh)
+[[ -t 0 && -t 1 ]] && command -v fzf >/dev/null 2>&1 && cached-zsh-init fzf 'command fzf --zsh'
 
 export EDITOR='nvim'
 export VISUAL='ghostty -e nvim'
 
-export PATH="$PATH:$(go env GOBIN):$(go env GOPATH)/bin"
+export GOPATH="${GOPATH:-$HOME/go}"
+[[ -n "$GOBIN" ]] && export PATH="$PATH:$GOBIN"
+export PATH="$PATH:$GOPATH/bin"
 export PATH="$PATH:/home/toms/.lmstudio/bin"
 
-source <(niri completions zsh)
+command -v niri >/dev/null 2>&1 && cached-zsh-init niri 'command niri completions zsh'
 
 export PATH="/home/toms/.local/bin:$PATH"
 export PATH="/home/toms/.bun/bin:$PATH"
@@ -45,7 +75,6 @@ export PATH=$PATH:/home/toms/.turso
 export PATH=$PATH:/home/toms/.local/bin/
 export PATH=$PATH:/home/toms/.cargo/bin/
 export PATH=$PATH:/home/toms/.local/share/nvim/mason/bin/
-export PATH=$PATH:/home/toms/.local/share/nvimtj/mason/bin/
 export PATH=$PATH:/home/toms/.deno/bin
 export PATH=$PATH:/var/lib/flatpak/exports/share
 export PATH=$PATH:/home/toms/.local/share/flatpak/exports/share
@@ -146,6 +175,6 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 
-if command -v wt >/dev/null 2>&1; then eval "$(command wt config shell init zsh)"; fi
+command -v wt >/dev/null 2>&1 && cached-zsh-init wt 'command wt config shell init zsh'
 
-if command -v pulumi >/dev/null 2>&1; then eval "$(command pulumi completion zsh)"; fi
+command -v pulumi >/dev/null 2>&1 && cached-zsh-init pulumi 'command pulumi completion zsh'
