@@ -1,6 +1,6 @@
 ---
 name: tj-impl
-description: Implement a specced GitHub Task or small direct Bug issue. Use only when the issue body says exactly `Implementation readiness: ready`, including review-feedback fix cycles on the existing implementation branch.
+description: "Implement a specced GitHub Task or small direct Bug issue. Use only when the issue body says exactly `Implementation readiness: ready`, including review-feedback fix cycles on the existing implementation branch."
 ---
 
 # tj-impl
