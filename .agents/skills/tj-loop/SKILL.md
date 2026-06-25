@@ -12,6 +12,8 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 - Work only within the starting `feature` or `bug` scope.
 - Determine scope from labels, not GitHub issue type metadata.
 - If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
+- Treat the `ready` label as technical/functional clarity only, not dependency order.
+- Use blocking/blocked-by relationships separately to decide which ready issue can run next.
 - Do not start `task` issues from other parent `feature` or `bug` issues.
 - Use `gh` for all GitHub reads and updates.
 - Do not use issue comments as workflow state.
@@ -28,8 +30,8 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 4. Discover sibling `task` issues only from:
    - parent `feature` or `bug` issue child issues
    - blocking and blocked-by relationships inside that same parent scope
-5. Ignore ready `task` issues that belong to other parent `feature` or `bug` issues.
-6. Select the next `task` issue only when it has the `ready` label.
+5. Ignore `task` issues that belong to other parent `feature` or `bug` issues, even if they have the `ready` label.
+6. Select the next executable `task` issue from same-scope issues that have the `ready` label and are next in dependency order.
 
 ## Main Loop
 
@@ -75,14 +77,14 @@ Pending, queued, waiting, in-progress, or requested PR checks do not count as re
 
 ## Next `task` Issue Selection
 
-After the current `task` issue or direct `bug` issue reaches the ready state:
+After the current `task` issue or direct `bug` issue reaches the PR-ready state:
 
 1. If the starting issue was a direct `bug` issue, end.
 2. Read the parent `feature` or `bug` issue child `task` issues.
 3. Follow blocking and blocked-by relationships to preserve delivery order.
-4. Select the next `task` issue in the same parent scope that has the `ready` label.
+4. From the same parent scope, select the next `task` issue that has the `ready` label and is not waiting on an earlier unimplemented `task` issue in the chain.
 5. Start a new branch for the next `task` issue through `tj-impl`; do not reuse the previous branch unless the next `task` issue's `### Branch Plan` names it as the current branch.
-6. If no same-scope ready `task` issue remains, end.
+6. If no same-scope `ready` issue is next in dependency order, end or report the dependency/order blocker.
 
 ## Commit Guidance
 

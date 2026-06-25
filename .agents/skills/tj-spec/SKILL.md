@@ -20,7 +20,8 @@ description: Spec GitHub issues labeled `feature`, `bug`, or `task`. Use when a 
 - Created implementation issues start with labels `task` and `engineering`, without the `ready` label.
 - Created `task` issue titles must use `[Task] {order} {title}`.
 - Every `task` issue and implementation-ready direct `bug` issue must include `### Branch Plan`.
-- Add the `ready` label only when the issue is specific enough to implement.
+- The `ready` label means the issue is technically and functionally clear enough to implement; it does not mean dependency order allows immediate work.
+- Add the `ready` label when all functional and technical aspects are clear and no open engineering questions remain.
 - Remove the `ready` label whenever unresolved engineering questions remain.
 
 ## Issue Modes
@@ -54,9 +55,9 @@ Issues labeled `feature` are parent scope only. Do not implement them directly.
 2. Read the parent `feature` or `bug` issue when present.
 3. Research relevant code, patterns, contracts, data flow, and tests.
 4. Interview the engineer about implementation details, dependencies, edge cases, verification, and branch stacking.
-5. Update the `task` issue body until it is implementation-ready.
+5. Update the `task` issue body until all functional and technical aspects are clear.
 6. Fill `### Branch Plan`.
-7. Add the `ready` label only when no blocking questions remain.
+7. Add the `ready` label only when no open engineering questions remain; do not withhold it merely because earlier dependency `task` issues must run first.
 
 ## Research Checklist
 
