@@ -1,6 +1,6 @@
 ---
 name: tj-spec
-description: Spec GitHub Feature, Bug, or Task issues. Use when a poorly described Feature or Bug needs research, interview, scoping, child Task creation, parent-child links, blocking order, or when a Task/small Bug needs an implementation-ready spec.
+description: Spec GitHub issues labeled `feature`, `bug`, or `task`. Use when a poorly described `feature` or `bug` issue needs research, interview, scoping, child `task` issue creation, parent-child links, blocking order, or when a `task`/small `bug` issue needs an implementation-ready spec.
 ---
 
 # tj-spec
@@ -10,54 +10,57 @@ description: Spec GitHub Feature, Bug, or Task issues. Use when a poorly describ
 - Use `gh` for all GitHub work.
 - Read and update issue descriptions. Do not use issue comments as workflow state.
 - If the user gives an issue number, assume the current repository.
-- Handle only issue types `Feature`, `Bug`, and `Task`.
+- Handle only issues labeled `feature`, `bug`, or `task`.
+- Determine issue mode from labels, not GitHub issue type metadata.
+- If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
 - Do not change priority, owner, assignee, milestone, or unrelated project fields unless asked.
 - Ask up to five focused questions per turn.
 - For every question, include your recommended answer so the engineer can accept, reject, or correct it quickly.
 - Keep the issue body resumable after every interaction: remove answered questions and integrate the answers into the spec.
-- Created implementation Tasks start with type `Task`, label `engineering`, and `Implementation readiness: blocked`.
-- Created Task titles must use `[Task] {order} {title}`.
-- Every Task and implementation-ready direct Bug must include `### Branch Plan`.
-- Set `Implementation readiness: ready` only when the issue is specific enough to implement.
+- Created implementation issues start with labels `task` and `engineering`, without the `ready` label.
+- Created `task` issue titles must use `[Task] {order} {title}`.
+- Every `task` issue and implementation-ready direct `bug` issue must include `### Branch Plan`.
+- Add the `ready` label only when the issue is specific enough to implement.
+- Remove the `ready` label whenever unresolved engineering questions remain.
 
 ## Issue Modes
 
-### Feature
+### `feature` label
 
-Feature issues are parent scope only. Do not implement them directly.
+Issues labeled `feature` are parent scope only. Do not implement them directly.
 
-1. Read the Feature issue body.
+1. Read the `feature` issue body.
 2. Research the current code, product behavior, integration points, and tests before asking questions.
 3. Interview the engineer about behavior, design, sequencing, review boundaries, and delivery risks.
-4. Propose an ordered Task breakdown with final titles, branch names, base branches, and blocking relationships.
+4. Propose an ordered `task` issue breakdown with final titles, branch names, base branches, and blocking relationships.
 5. Wait for engineer confirmation.
-6. Create or update child Task issues.
-7. Link every Task to the parent Feature.
-8. Link Tasks in implementation order with blocking/blocked-by relationships.
+6. Create or update child issues labeled `task`.
+7. Link every child `task` issue to the parent `feature` issue.
+8. Link `task` issues in implementation order with blocking/blocked-by relationships.
 9. Update the parent issue with a `### Created Tasks` section.
-10. Leave task-specific open questions in the relevant child Task bodies.
+10. Leave task-specific open questions in the relevant child `task` issue bodies.
 
-### Bug
+### `bug` label
 
-1. Read the Bug issue body.
+1. Read the `bug` issue body.
 2. Research current behavior, affected code, reproduction path, tests, logs, APIs, and data flow.
-3. Decide whether it is a small direct Bug or a large Bug.
-4. For a small direct Bug, update the Bug body using the implementation issue structure and keep type `Bug`.
-5. For a large Bug, split it into child Tasks using the Feature flow and keep the parent type `Bug`.
+3. Decide whether it is a small direct `bug` issue or a large `bug` issue.
+4. For a small direct `bug` issue, update its body using the implementation issue structure and keep the `bug` label.
+5. For a large `bug` issue, split it into child issues labeled `task` using the `feature` flow and keep the parent labeled `bug`.
 
-### Task
+### `task` label
 
-1. Read the Task issue body.
-2. Read the parent Feature or Bug when present.
+1. Read the `task` issue body.
+2. Read the parent `feature` or `bug` issue when present.
 3. Research relevant code, patterns, contracts, data flow, and tests.
 4. Interview the engineer about implementation details, dependencies, edge cases, verification, and branch stacking.
-5. Update the Task body until it is implementation-ready.
+5. Update the `task` issue body until it is implementation-ready.
 6. Fill `### Branch Plan`.
-7. Set `Implementation readiness: ready` only when no blocking questions remain.
+7. Add the `ready` label only when no blocking questions remain.
 
 ## Research Checklist
 
-Before asking engineering questions or proposing Tasks, identify:
+Before asking engineering questions or proposing `task` issues, identify:
 
 - existing behavior
 - relevant files and patterns
@@ -89,7 +92,7 @@ Do not stop after one question round if important decisions remain unresolved.
 
 ## Implementation Issue Body
 
-Use this structure for Tasks and small direct Bugs:
+Use this structure for `task` issues and small direct `bug` issues:
 
 ```markdown
 ### Parent Context
@@ -99,9 +102,6 @@ Use this structure for Tasks and small direct Bugs:
 List only unresolved questions. Remove answered questions and integrate the answers below.
 
 ### Implementation Spec
-
-Implementation readiness: blocked
-
 ### Implementation Plan
 
 ### Branch Plan
@@ -139,9 +139,9 @@ Use stable, short, lowercase branch names.
 - Stacking notes: Not stacked.
 ```
 
-For stacked Tasks, set each Task base branch to the previous Task branch when it depends on earlier unmerged work.
+For stacked `task` issues, set each `task` issue base branch to the previous `task` branch when it depends on earlier unmerged work.
 
-For direct Bugs, prefer:
+For direct `bug` issues, prefer:
 
 ```text
 fix-ISSUE-slug
@@ -153,9 +153,9 @@ Use `gh` only. Prefer native `gh issue` flags when available in the installed CL
 
 Required relationships for split work:
 
-- parent Feature or Bug has every implementation Task as a child issue
-- Task 1 blocks Task 2, Task 2 blocks Task 3, and so on when delivery is sequential
-- independent Tasks are children of the parent but do not need blocking links
+- parent `feature` or `bug` issue has every implementation issue labeled `task` as a child issue
+- `task` issue 1 blocks `task` issue 2, `task` issue 2 blocks `task` issue 3, and so on when delivery is sequential
+- independent `task` issues are children of the parent but do not need blocking links
 
 After relationship updates, verify with `gh issue view` or `gh api` that the parent-child and blocking links exist. If GitHub permissions or API support prevent relationship updates, stop and report exactly which links were not created.
 
@@ -165,7 +165,8 @@ Useful patterns:
 
 ```bash
 gh repo view --json nameWithOwner
-gh issue view 123 --json number,title,body,issueType,parent,url
-gh issue create --title "[Task] 1 Title" --body-file task.md --type Task --label engineering
-gh issue edit 123 --body-file issue.md --add-label engineering
+gh issue view 123 --json number,title,body,labels,parent,url
+gh issue create --title "[Task] 1 Title" --body-file task.md --label task --label engineering
+gh issue edit 123 --body-file issue.md --add-label ready --add-label engineering
+gh issue edit 123 --body-file issue.md --remove-label ready
 ```

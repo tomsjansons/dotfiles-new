@@ -1,6 +1,6 @@
 ---
 name: tj-loop
-description: Orchestrate the full GitHub issue loop for a Feature or Bug scope. Use to implement child Tasks one by one, review, fix review issues, create stacked PRs, address PR feedback, and move to the next ready Task.
+description: Orchestrate the full GitHub issue loop for a `feature` or `bug` scope. Use to implement child `task` issues one by one, review, fix review issues, create stacked PRs, address PR feedback, and move to the next ready `task` issue.
 ---
 
 # tj-loop
@@ -9,8 +9,10 @@ description: Orchestrate the full GitHub issue loop for a Feature or Bug scope. 
 
 - This is an orchestration skill. Delegate implementation, local review, and PR preparation to the focused `tj-*` skills.
 - Accept an issue number or issue URL.
-- Work only within the starting Feature or Bug scope.
-- Do not start Tasks from other parent Features or Bugs.
+- Work only within the starting `feature` or `bug` scope.
+- Determine scope from labels, not GitHub issue type metadata.
+- If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
+- Do not start `task` issues from other parent `feature` or `bug` issues.
 - Use `gh` for all GitHub reads and updates.
 - Do not use issue comments as workflow state.
 - Communicate review state through the implementation issue `### Review` section.
@@ -21,17 +23,17 @@ description: Orchestrate the full GitHub issue loop for a Feature or Bug scope. 
 ## Scope Discovery
 
 1. Read the starting issue.
-2. If the starting issue is a Task, read its parent Feature or Bug.
-3. If the starting issue is a small direct Bug, that Bug is the full scope.
-4. Discover sibling Tasks only from:
-   - parent Feature or Bug child issues
+2. If the starting issue is labeled `task`, read its parent `feature` or `bug` issue.
+3. If the starting issue is a small direct `bug` issue, that `bug` issue is the full scope.
+4. Discover sibling `task` issues only from:
+   - parent `feature` or `bug` issue child issues
    - blocking and blocked-by relationships inside that same parent scope
-5. Ignore ready Tasks that belong to other parent Features or Bugs.
-6. Select the next Task only when its body contains exactly `Implementation readiness: ready`.
+5. Ignore ready `task` issues that belong to other parent `feature` or `bug` issues.
+6. Select the next `task` issue only when it has the `ready` label.
 
 ## Main Loop
 
-For each selected Task or direct Bug:
+For each selected `task` issue or direct `bug` issue:
 
 1. Run `tj-impl` with the issue number or URL.
 2. Inspect `git status --short`.
@@ -71,16 +73,16 @@ Treat the issue as ready when:
 
 Pending, queued, waiting, in-progress, or requested PR checks do not count as ready or blocked. Wait until terminal results are known. If no checks start within 1 minute, stop and report the missing check start.
 
-## Next Task Selection
+## Next `task` Issue Selection
 
-After the current Task or direct Bug reaches the ready state:
+After the current `task` issue or direct `bug` issue reaches the ready state:
 
-1. If the starting issue was a direct Bug, end.
-2. Read the parent Feature or Bug child Tasks.
+1. If the starting issue was a direct `bug` issue, end.
+2. Read the parent `feature` or `bug` issue child `task` issues.
 3. Follow blocking and blocked-by relationships to preserve delivery order.
-4. Select the next Task in the same parent scope whose body contains exactly `Implementation readiness: ready`.
-5. Start a new branch for the next Task through `tj-impl`; do not reuse the previous branch unless the next Task's `### Branch Plan` names it as the current branch.
-6. If no same-scope ready Task remains, end.
+4. Select the next `task` issue in the same parent scope that has the `ready` label.
+5. Start a new branch for the next `task` issue through `tj-impl`; do not reuse the previous branch unless the next `task` issue's `### Branch Plan` names it as the current branch.
+6. If no same-scope ready `task` issue remains, end.
 
 ## Commit Guidance
 
@@ -107,8 +109,8 @@ Use these focused skills instead of duplicating their behavior:
 Useful patterns:
 
 ```bash
-gh issue view 123 --json number,title,issueType,body,parent,url
-gh issue view 123 --json number,title,body,parent,subIssues,url
+gh issue view 123 --json number,title,labels,body,parent,url
+gh issue view 123 --json number,title,labels,body,parent,subIssues,url
 git status --short
 git branch --show-current
 git add -A

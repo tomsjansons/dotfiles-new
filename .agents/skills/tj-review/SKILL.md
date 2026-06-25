@@ -1,6 +1,6 @@
 ---
 name: tj-review
-description: Locally review code changes against a GitHub Task or small direct Bug issue and its parent Feature or Bug. Use after implementation and before PR creation.
+description: Locally review code changes against a GitHub `task` or small direct `bug` issue and its parent `feature` or `bug` issue. Use after implementation and before PR creation.
 ---
 
 # tj-review
@@ -9,16 +9,19 @@ description: Locally review code changes against a GitHub Task or small direct B
 
 - Use `gh` for GitHub issue reads and updates.
 - Read and update issue descriptions. Do not use issue comments as workflow state.
+- Determine review eligibility from labels, not GitHub issue type metadata.
+- Review only issues labeled `task` or small direct issues labeled `bug`.
+- If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
 - Review local code changes only.
 - Do not edit code.
 - Do not change project status.
 - Update only `### Review`.
-- Compare technical correctness and functional fit against the implementation issue and parent Feature or Bug when present.
+- Compare technical correctness and functional fit against the implementation issue and parent `feature` or `bug` issue when present.
 
 ## Flow
 
-1. Read the Task or direct Bug issue.
-2. Read parent Feature or Bug context when present.
+1. Read the `task` issue or direct `bug` issue.
+2. Read parent `feature` or `bug` issue context when present.
 3. Determine the intended base branch from `### Branch Plan`.
 4. Inspect local branch changes against the intended base branch.
 5. Read changed files with surrounding context.
@@ -32,7 +35,7 @@ description: Locally review code changes against a GitHub Task or small direct B
 Before Pass 1, gather:
 
 - implementation issue body
-- parent Feature or Bug body when present
+- parent `feature` or `bug` issue body when present
 - intended base branch
 - `git status --short`
 - `git diff --stat BASE...HEAD`
@@ -66,7 +69,7 @@ Focus on maintainability and broader codebase fit:
 - generated-code workflow violations
 - poor split between layers or responsibilities
 - unclear ownership boundaries
-- changes that make later Tasks harder
+- changes that make later `task` issues harder
 - task scope creep beyond the issue body
 - missing tests for meaningful business logic
 - UI behavior inconsistent with existing screens or components
@@ -177,7 +180,7 @@ If there are blocking findings, use `Verdict: blocked`. `tj-pr` must refuse to r
 Useful patterns:
 
 ```bash
-gh issue view 123 --json number,title,issueType,body,parent,url
+gh issue view 123 --json number,title,labels,body,parent,url
 git branch --show-current
 git status --short
 git diff --stat BASE...HEAD

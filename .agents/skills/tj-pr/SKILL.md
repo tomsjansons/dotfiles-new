@@ -1,6 +1,6 @@
 ---
 name: tj-pr
-description: Prepare, create, or refresh a GitHub PR for a Task or small direct Bug. Use after implementation results and passing local review, or to pull current PR comments/check failures back into the issue.
+description: Prepare, create, or refresh a GitHub PR for a `task` or small direct `bug` issue. Use after implementation results and passing local review, or to pull current PR comments/check failures back into the issue.
 ---
 
 # tj-pr
@@ -9,7 +9,9 @@ description: Prepare, create, or refresh a GitHub PR for a Task or small direct 
 
 - Use `gh` for all GitHub work.
 - Read and update issue descriptions. Do not use issue comments as workflow state.
-- Run only for `Task` issues or small direct `Bug` issues.
+- Run only for issues labeled `task` or small direct issues labeled `bug`.
+- Determine PR eligibility from labels, not GitHub issue type metadata.
+- If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
 - Accept an issue number or issue URL.
 - Find any existing PR from the issue number, issue URL, `### Pull Request`, PR body closing keyword, or current branch.
 - Refuse if `### Results` is missing or still says implementation has not run.
@@ -18,17 +20,17 @@ description: Prepare, create, or refresh a GitHub PR for a Task or small direct 
 - For stacked PRs, the Branch Plan base branch and PR base branch must match.
 - Create a PR when none exists.
 - If a PR already exists, update it instead of creating a duplicate.
-- Use `Closes #123` for Task issues.
-- Use `Fixes #123` for direct Bug issues.
-- Never close a Feature issue from an implementation PR.
+- Use `Closes #123` for issues labeled `task`.
+- Use `Fixes #123` for direct issues labeled `bug`.
+- Never close an issue labeled `feature` from an implementation PR.
 - Update `### Pull Request` with the PR URL.
 - Inspect current PR review comments and check status for existing PRs.
 - Update `### Review` with unresolved PR review comments and failed PR checks.
 
 ## Flow
 
-1. Read the issue and verify type is `Task` or `Bug`.
-2. Read parent Feature or Bug when present.
+1. Read the issue and verify it has label `task` or `bug`.
+2. Read parent `feature` or `bug` issue when present.
 3. Verify Results and local Review gates.
 4. Determine current branch and intended base branch from `### Branch Plan`.
 5. Find an existing PR from the issue number, issue URL, `### Pull Request`, PR body closing keyword, or current branch.
@@ -96,14 +98,14 @@ Closes #123
 ## Risks Or Follow-Ups
 ```
 
-Use `Fixes #123` instead of `Closes #123` for direct Bug implementation.
+Use `Fixes #123` instead of `Closes #123` for direct `bug` implementation.
 
 ## Commands
 
 Useful patterns:
 
 ```bash
-gh issue view 123 --json number,title,issueType,body,parent,url
+gh issue view 123 --json number,title,labels,body,parent,url
 git branch --show-current
 git fetch origin BASE_BRANCH
 git merge origin/BASE_BRANCH -m "merge: incorporate latest BASE_BRANCH" --no-edit

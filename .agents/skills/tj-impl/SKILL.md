@@ -1,6 +1,6 @@
 ---
 name: tj-impl
-description: "Implement a specced GitHub Task or small direct Bug issue. Use only when the issue body says exactly `Implementation readiness: ready`, including review-feedback fix cycles on the existing implementation branch."
+description: "Implement a specced GitHub `task` or small direct `bug` issue. Use only when the issue has the `ready` label, including review-feedback fix cycles on the existing implementation branch."
 ---
 
 # tj-impl
@@ -9,9 +9,11 @@ description: "Implement a specced GitHub Task or small direct Bug issue. Use onl
 
 - Use `gh` for GitHub issue reads and updates.
 - Read and update issue descriptions. Do not use issue comments as workflow state.
-- Implement only `Task` issues or small direct `Bug` issues.
-- Refuse to start unless the issue body contains exactly `Implementation readiness: ready`.
-- Read the parent Feature or Bug when present.
+- Implement only issues labeled `task` or small direct issues labeled `bug`.
+- Determine eligibility from labels, not GitHub issue type metadata.
+- If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
+- Refuse to start unless the issue has the `ready` label.
+- Read the parent issue labeled `feature` or `bug` when present.
 - Do not change project status.
 - Do not update `### Review`.
 - For new implementation work, create or switch to the suggested branch from `### Branch Plan`.
@@ -23,9 +25,9 @@ description: "Implement a specced GitHub Task or small direct Bug issue. Use onl
 ## Flow
 
 1. Read the implementation issue with `gh issue view`.
-2. Verify issue type is `Task` or `Bug`.
-3. Verify readiness line is exactly `Implementation readiness: ready`.
-4. Read parent Feature or Bug context when present.
+2. Verify the issue has label `task` or `bug`.
+3. Verify the issue has the `ready` label.
+4. Read parent `feature` or `bug` context when present.
 5. Read `### Branch Plan` and determine suggested branch, base branch, and stacking notes.
 6. Decide whether this run starts new implementation work or addresses review feedback.
 7. If starting new work, ensure the current branch is the suggested branch, creating it from the correct base when needed.
@@ -81,7 +83,7 @@ For non-UI tasks, write `UI evidence: Not applicable`.
 Useful patterns:
 
 ```bash
-gh issue view 123 --json number,title,issueType,body,parent,url
+gh issue view 123 --json number,title,labels,body,parent,url
 git status --short
 git branch --show-current
 git fetch origin BASE_BRANCH
