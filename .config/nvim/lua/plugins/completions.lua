@@ -12,7 +12,7 @@ local function build_blink()
 	end
 
 	local ok_build, err = pcall(function()
-		cmp.build({ force = true }):wait(60000)
+		cmp.build({ force = true }):pwait()
 	end)
 	if ok_build then
 		vim.notify("Building blink done", vim.log.levels.INFO)
@@ -35,7 +35,13 @@ vim.api.nvim_create_autocmd("PackChanged", {
 
 vim.pack.add({
 	{ src = "https://github.com/Saghen/blink.lib" },
-	{ src = "https://github.com/Saghen/blink.cmp" },
+	{
+		src = "https://github.com/Saghen/blink.cmp",
+		version = "v1.8.0",
+		build = function()
+			require("blink.cmp").build():pwait()
+		end,
+	},
 })
 
 require("blink.cmp").setup({
