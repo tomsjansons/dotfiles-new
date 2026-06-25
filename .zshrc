@@ -1,8 +1,18 @@
+
+# Lines configured by zsh-newuser-install
 HISTFILE=~/.histfile
 HISTSIZE=1000
 SAVEHIST=1000
 unsetopt beep
 bindkey -v
+# End of lines configured by zsh-newuser-install
+# The following lines were added by compinstall
+zstyle :compinstall filename '/home/toms/.zshrc'
+
+autoload -Uz compinit
+compinit
+# End of lines added by compinstall
+#
 
 bindkey "^[[H" beginning-of-line
 bindkey "^[[F" end-of-line
@@ -10,49 +20,55 @@ bindkey "^[[3~" delete-char
 bindkey "^[[1;5D" backward-word
 bindkey "^[[1;5C" forward-word
 
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block; everything else may go below.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
-  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
-fi
 
-source /usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme
-source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+eval "$(oh-my-posh init zsh --config /home/toms/.config/oh-my-posh/amro.omp.json)"
+eval $(luarocks path)
+eval "$(mise activate zsh)"
 
-export PNPM_HOME="$HOME/.local/share/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
-
-# source /usr/share/cachyos-zsh-config/cachyos-config.zsh
-if command -v mise >/dev/null 2>&1; then
-  eval "$(mise activate zsh)"
-fi
-# eval "$(obsidian-cli completion zsh)"
 source <(fzf --zsh)
 
 export EDITOR='nvim'
+export VISUAL='ghostty -e nvim'
 
+export PATH="$PATH:$(go env GOBIN):$(go env GOPATH)/bin"
+export PATH="$PATH:/home/toms/.lmstudio/bin"
 
-# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+source <(niri completions zsh)
 
-# . "$HOME/.local/bin/env"
-
-# Hermes Agent — ensure ~/.local/bin is on PATH
-export PATH="$HOME/.local/bin:$PATH"
-
-
+export PATH="/home/toms/.local/bin:$PATH"
+export PATH="/home/toms/.bun/bin:$PATH"
+export ANDROID_HOME='/opt/android-sdk/'
+export NDK_HOME='/opt/android-ndk/'
+export PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin
+export PATH="/home/toms/.bun/bin:$PATH"
+export PATH=$PATH:/home/toms/.turso
+export PATH=$PATH:/home/toms/.local/bin/
+export PATH=$PATH:/home/toms/.cargo/bin/
+export PATH=$PATH:/home/toms/.local/share/nvim/mason/bin/
+export PATH=$PATH:/home/toms/.local/share/nvimtj/mason/bin/
+export PATH=$PATH:/home/toms/.deno/bin
+export PATH=$PATH:/var/lib/flatpak/exports/share
+export PATH=$PATH:/home/toms/.local/share/flatpak/exports/share
+export XDG_DATA_DIRS=/var/lib/flatpak/exports/share
+export XDG_DATA_DIRS=$XDG_DATA_DIRS:/home/toms/.local/share/flatpak/exports/share
+export XDG_DATA_DIRS=$XDG_DATA_DIRS:/usr/share
+export KUBECONFIG=/home/toms/.kube/config
+export TERMINAL=ghostty
+export RIPGREP_CONFIG_PATH=/home/toms/.config/ripgrep/config
+export VCPKG_ROOT="/home/toms/vcpkg"
 alias source-me="source ~/.zshrc"
 alias lsa="eza --long --all --icons=always --git --time-style=long-iso --octal-permissions --no-user"
 alias lsas="eza --long --all --icons=always --git --time-style=long-iso --octal-permissions --no-user --total-size"
 alias ls="eza"
 alias cat="bat"
+alias nvim-new="ghostty -e nvim"
+alias p="pi --no-session --model openai-codex/gpt-5.4-mini --thinking off --no-tools --no-extensions --no-skills --no-themes --no-prompt-templates -p $@"
+alias pinvim="pi --model openai-codex/gpt-5.5 --thinking low --append-system-prompt '<CRITICAL>Be extremely precise: only make the exact changes the user explicitly requests. Do not expand into unrelated files or add extra modifications. In this IDE setup, avoid any changes outside the user-specified scope. It is ok to leave broken state as we are working on incremental changes and will resolve any conflicts or compile errors eventually. If the requested changes span more files than the user requests, point that out in the response but do not peform any additional changes without explicit user confirmation. Reread state between user messages as the user will make manual edits - these manual edits NEED to be preserved unless the users asks them to be changed. Do not make style changed unless the user explicitly asks.</CRITICAL>'"
 
+ob-edit() {
+    cd ~/obsidian/tomstoms/
+    $EDITOR
+  }
 
 secret-init() {
   pass-cli login
@@ -70,16 +86,65 @@ secret-init() {
   export ZAI_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "ZAI_API_KEY" --output json | jq -r '.item.content.note')"
 }
 
-ob-edit() {
-    cd ~/obsidian/tomstoms/
-    $EDITOR
-}
-
-zst () {
+z() {
   secret-init
-  zellij -l welcome
+  zellij "$@"
 }
 
+ k3s-local() {
+   case "$1" in
+     up|start)
+       echo "Starting iSCSI daemon..."
+       sudo systemctl start iscsid.service
+
+       echo "Starting k3s..."
+       sudo systemctl start k3s.service
+
+       echo "Cluster status:"
+       sudo systemctl --no-pager --full status iscsid.service k3s.service
+       ;;
+
+     down|stop)
+       echo "Stopping k3s..."
+       sudo systemctl stop k3s.service
+
+       if [[ -x /usr/local/bin/k3s-killall.sh ]]; then
+         echo "Cleaning up k3s containers, networking, and mounts..."
+         sudo /usr/local/bin/k3s-killall.sh
+       fi
+
+       echo "Stopping iSCSI daemon..."
+       sudo systemctl stop iscsid.service
+
+       echo "Clearing stale iSCSI unit failures..."
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+
+       echo "Cluster stopped."
+       ;;
+
+     status)
+       sudo systemctl --no-pager --full status k3s.service iscsid.service iscsi.service iscsid.socket
+       ;;
+
+     disable-autostart)
+       echo "Disabling k3s and iSCSI autostart..."
+       sudo systemctl disable k3s.service
+       sudo systemctl disable iscsi.service iscsid.socket iscsid.service
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+       ;;
+
+     *)
+       echo "Usage: k3s-local {up|down|status|disable-autostart}"
+       return 2
+       ;;
+   esac
+ }
+
+export PNPM_HOME="/home/toms/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
 
 if command -v wt >/dev/null 2>&1; then eval "$(command wt config shell init zsh)"; fi
 
