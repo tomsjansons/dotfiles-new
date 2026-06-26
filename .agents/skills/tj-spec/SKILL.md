@@ -45,9 +45,10 @@ Issues labeled `feature` are parent scope only. Do not implement them directly.
 
 1. Read the `bug` issue body.
 2. Research current behavior, affected code, reproduction path, tests, logs, APIs, and data flow.
-3. Decide whether it is a small direct `bug` issue or a large `bug` issue.
-4. For a small direct `bug` issue, update its body using the implementation issue structure and keep the `bug` label.
-5. For a large `bug` issue, split it into child issues labeled `task` using the `feature` flow and keep the parent labeled `bug`.
+3. Decide whether it appears to be a small direct `bug` issue or a large `bug` issue.
+4. If the distinction is unclear, ask the engineer whether to implement the bug directly or split it into child `task` issues. Include a recommendation.
+5. For a small direct `bug` issue, update its body using the implementation issue structure and keep the `bug` label.
+6. For a large `bug` issue, split it into child issues labeled `task` using the `feature` flow and keep the parent labeled `bug`.
 
 ### `task` label
 
@@ -103,6 +104,7 @@ Use this structure for `task` issues and small direct `bug` issues:
 List only unresolved questions. Remove answered questions and integrate the answers below.
 
 ### Implementation Spec
+
 ### Implementation Plan
 
 ### Branch Plan
@@ -121,12 +123,35 @@ _Implementation has not run._
 
 ### Review
 
+#### Local Review
+
 _Review has not run._
+
+#### PR Feedback
+
+_PR feedback has not been refreshed._
 
 ### Pull Request
 
 _PR has not been created._
 ```
+
+## Issue Body Contract
+
+Implementation skills expect these sections to exist:
+
+- `### Parent Context`
+- `### Engineering Questions`
+- `### Implementation Spec`
+- `### Implementation Plan`
+- `### Branch Plan`
+- `### Acceptance Criteria`
+- `### Verification`
+- `### Results`
+- `### Review`
+- `### Pull Request`
+
+`### Branch Plan` is required before implementation, review, or PR work. Missing `### Branch Plan` is a hard stop.
 
 ## Branch Plan
 
@@ -141,6 +166,8 @@ Use stable, short, lowercase branch names.
 ```
 
 For stacked `task` issues, set each `task` issue base branch to the previous `task` branch when it depends on earlier unmerged work.
+
+When earlier stacked PRs merge, downstream task base branches may need to advance from a previous task branch to the merge target, usually `main`. Record enough stacking notes for `tj-loop` and `tj-pr` to identify the intended current base.
 
 For direct `bug` issues, prefer:
 

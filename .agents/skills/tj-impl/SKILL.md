@@ -12,12 +12,13 @@ description: "Implement a specced GitHub `task` or small direct `bug` issue. Use
 - Implement only issues labeled `task` or small direct issues labeled `bug`.
 - Determine eligibility from labels, not GitHub issue type metadata.
 - If an issue has more than one of `feature`, `bug`, or `task`, stop and ask which workflow label is authoritative.
+- If an issue labeled `bug` appears too large or ambiguous for direct implementation, ask the engineer whether it should be implemented directly or split into child `task` issues. Include a recommendation.
 - Refuse to start unless the issue has the `ready` label.
 - Read the parent issue labeled `feature` or `bug` when present.
 - Do not change project status.
 - Do not update `### Review`.
 - For new implementation work, create or switch to the suggested branch from `### Branch Plan`.
-- For review-feedback work, stay on the existing implementation branch.
+- For review-feedback or PR-conflict repair work, stay on the existing implementation branch.
 - Refuse to create or switch branches when there are uncommitted changes.
 - Branch from the base branch named in `### Branch Plan`.
 - Never rebase implementation branches. Use fast-forward when possible, otherwise merge commits.
@@ -31,15 +32,16 @@ description: "Implement a specced GitHub `task` or small direct `bug` issue. Use
 2. Verify the issue has label `task` or `bug`.
 3. Verify the issue has the `ready` label.
 4. Read parent `feature` or `bug` context when present.
-5. Read `### Branch Plan` and determine suggested branch, base branch, and stacking notes.
-6. Decide whether this run starts new implementation work or addresses review feedback.
-7. If starting new work, ensure the current branch is the suggested branch, creating it from the correct base when needed.
-8. If addressing review feedback, keep the current branch and refuse automatic branch switching.
-9. Inspect the codebase and create an implementation todo list.
-10. Implement the smallest complete code change for this issue.
-11. Run focused verification, formatting, and relevant tests.
-12. Update `### Results` with current truth.
-13. Report what changed and what remains for review.
+5. Verify `### Branch Plan` exists. Missing `### Branch Plan` is a hard stop.
+6. Read suggested branch, base branch, and stacking notes from `### Branch Plan`.
+7. Decide whether this run starts new implementation work, addresses local review feedback, addresses PR feedback/check failures, or repairs a branch/base conflict recorded by `tj-pr`.
+8. If starting new work, ensure the current branch is the suggested branch, creating it from the correct base when needed.
+9. If addressing feedback or conflict repair, keep the current branch and refuse automatic branch switching.
+10. Inspect the codebase and create an implementation todo list.
+11. Implement the smallest complete code change for this issue.
+12. Run focused verification, formatting, and relevant tests.
+13. Update `### Results` with current truth.
+14. Report what changed and what remains for review.
 
 ## Branch Handling
 
@@ -58,11 +60,12 @@ For new implementation work:
 1. Run `git status --short`.
 2. Refuse branch changes if there are uncommitted changes.
 3. Fetch the base branch from origin.
-4. Create the suggested branch from `origin/BASE_BRANCH` when it does not exist.
-5. Switch to the suggested branch when it exists locally.
-6. Verify the current branch matches the intended implementation branch before editing code.
+4. If the base branch does not exist locally or on origin, stop and report that the Branch Plan is stale or invalid.
+5. Create the suggested branch from `origin/BASE_BRANCH` when it does not exist.
+6. Switch to the suggested branch when it exists locally.
+7. Verify the current branch matches the intended implementation branch before editing code.
 
-For review-feedback work, do not create a new branch. Stay on the existing implementation branch.
+For review-feedback, PR-feedback, or conflict-repair work, do not create a new branch. Stay on the existing implementation branch.
 
 For conflict repair or base updates:
 
@@ -72,6 +75,17 @@ For conflict repair or base updates:
 4. Resolve conflicts in that merge commit.
 5. Do not rebase, reset published history, or force push.
 6. If normal push is rejected because histories diverged, fetch and merge again.
+
+## Issue Body Contract
+
+Implementation expects these sections to exist:
+
+- `### Branch Plan`
+- `### Results`
+- `### Review`
+- `### Pull Request`
+
+Missing `### Branch Plan` is a hard stop. If `### Results` is missing but the issue is otherwise clearly specced, create it when writing results. Do not modify `### Review` or `### Pull Request`.
 
 ## Results Section
 
