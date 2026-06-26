@@ -7,7 +7,8 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 
 ## Rules
 
-- This is an orchestration skill. Delegate implementation, local review, and PR preparation to the focused `tj-*` skills.
+- This is an orchestration skill. Delegate implementation, local review, and PR preparation to the focused `tj-*` skills in fresh subagent sessions.
+- Start a new fresh subagent session for every `tj-impl`, `tj-review`, and `tj-pr` invocation; do not reuse a prior subagent conversation for the next phase or next issue.
 - Accept an issue number or issue URL.
 - Work only within the starting `feature` or `bug` scope.
 - Determine scope from labels, not GitHub issue type metadata.
@@ -37,25 +38,26 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 
 For each selected `task` issue or direct `bug` issue:
 
-1. Run `tj-impl` with the issue number or URL.
+1. Start a fresh subagent session running `tj-impl` with the issue number or URL.
 2. Inspect `git status --short`.
 3. Commit the implementation with a clear conventional commit message.
-4. Run `tj-review` with the same issue number or URL.
+4. Start a fresh subagent session running `tj-review` with the same issue number or URL.
 5. Read the issue `### Review` section.
-6. If local review has blocking findings, run `tj-impl` again on the same issue and branch.
+6. If local review has blocking findings, start a fresh subagent session running `tj-impl` again on the same issue and branch.
 7. Repeat implementation, commit, and local review until `### Review` has no blocking findings.
 8. Push the branch.
-9. Run `tj-pr` with the same issue number or URL.
+9. Start a fresh subagent session running `tj-pr` with the same issue number or URL.
 10. Inspect the PR result and current PR check status.
 11. If no check runs are visible, wait up to 1 minute for them to start.
-12. If no checks start within 1 minute, stop this issue's PR loop and report that checks did not start.
-13. Once checks have started, wait for every PR check to reach a terminal result.
-14. Pending, queued, waiting, in-progress, or requested checks are not exit conditions.
-15. If any PR check fails, is cancelled, times out, needs attention, or if open PR review comments exist, run `tj-pr` once to append current PR problems under `### Review`.
-16. Run `tj-impl` again on the same issue and branch to fix PR feedback.
-17. Commit and push each PR-feedback implementation cycle.
-18. Run `tj-review` locally again before refreshing the PR.
-19. Repeat local review, push, `tj-pr`, check waiting, and PR feedback handling until the issue is PR-ready.
+12. If no checks start within 1 minute, leave this PR alone, record/report that checks did not start, and move to the next eligible child `task` issue in the same parent scope.
+13. If checks have started, wait for every PR check to reach a terminal result.
+14. Pending, queued, waiting, in-progress, or requested checks are not terminal results.
+15. If checks are still running after they have started, keep waiting for this PR unless the user asks to move on.
+16. If any PR check fails, is cancelled, times out, needs attention, or if open PR review comments exist, start a fresh subagent session running `tj-pr` once to append current PR problems under `### Review`.
+17. Start a fresh subagent session running `tj-impl` again on the same issue and branch to fix PR feedback.
+18. Commit and push each PR-feedback implementation cycle.
+19. Start a fresh subagent session running `tj-review` locally again before refreshing the PR.
+20. Repeat local review, push, `tj-pr`, check waiting, and PR feedback handling until the issue is PR-ready, or until checks fail to start within 1 minute and the PR is left for later while the loop continues.
 
 ## PR Feedback Gate
 
@@ -66,24 +68,26 @@ Treat the issue as blocked when `### Review` includes any of:
 - open PR review comments appended by `tj-pr`
 - failed PR checks appended by `tj-pr`
 
-Treat the issue as ready when:
+Treat the issue as PR-ready when:
 
 - local review has no blocking findings
 - no open PR review comments are present
-- all PR checks have started and reached terminal results
+- all visible PR checks have started and reached terminal results
 - no failed, cancelled, timed-out, or needs-attention PR checks are present
 
-Pending, queued, waiting, in-progress, or requested PR checks do not count as ready or blocked. Wait until terminal results are known. If no checks start within 1 minute, stop and report the missing check start.
+Pending, queued, waiting, in-progress, or requested PR checks do not count as PR-ready or blocked. Wait until terminal results are known once checks have started.
+
+If no PR checks start within 1 minute, treat that PR as `checks-not-started`: leave it alone, do not treat it as failed or clean, and continue to the next eligible same-scope `task` issue.
 
 ## Next `task` Issue Selection
 
-After the current `task` issue or direct `bug` issue reaches the PR-ready state:
+After the current `task` issue or direct `bug` issue reaches PR-ready state, or its PR is left in `checks-not-started` state:
 
-1. If the starting issue was a direct `bug` issue, end.
+1. If the starting issue was a direct `bug` issue, end after reporting the PR-ready or `checks-not-started` state.
 2. Read the parent `feature` or `bug` issue child `task` issues.
 3. Follow blocking and blocked-by relationships to preserve delivery order.
 4. From the same parent scope, select the next `task` issue that has the `ready` label and is not waiting on an earlier unimplemented `task` issue in the chain.
-5. Start a new branch for the next `task` issue through `tj-impl`; do not reuse the previous branch unless the next `task` issue's `### Branch Plan` names it as the current branch.
+5. Start a new branch for the next `task` issue through a fresh subagent session running `tj-impl`; do not reuse the previous branch unless the next `task` issue's `### Branch Plan` names it as the current branch.
 6. If no same-scope `ready` issue is next in dependency order, end or report the dependency/order blocker.
 
 ## Commit Guidance
@@ -100,7 +104,7 @@ Prefer one commit after each completed `tj-impl` run. If the implementation run 
 
 ## Delegated Skills
 
-Use these focused skills instead of duplicating their behavior:
+Use these focused skills in fresh subagent sessions instead of duplicating their behavior:
 
 - `tj-impl` for code changes, branch creation, verification, and `### Results`
 - `tj-review` for local review and `### Review`
