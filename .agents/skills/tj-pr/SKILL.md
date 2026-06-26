@@ -16,10 +16,12 @@ description: Prepare, create, or refresh a GitHub PR for a `task` or small direc
 - Find any existing PR from the issue number, issue URL, `### Pull Request`, PR body closing keyword, or current branch.
 - Refuse if `### Results` is missing or still says implementation has not run.
 - Refuse if `### Review` has local `Verdict: blocked` or local blocking findings.
-- Pull and merge the issue's base branch from `### Branch Plan`, not always `main`.
+- Pull and merge the issue's base branch from `### Branch Plan`, not always `main`; never rebase.
 - For stacked PRs, the Branch Plan base branch and PR base branch must match.
 - Inspect and record current PR mergeability, merge conflicts, and base-branch mismatch for existing PRs.
 - If merging the base branch into the current branch conflicts, stop after recording the conflict under `### Review`; do not hand-resolve conflicts inside `tj-pr`. `tj-loop` should call `tj-impl` to repair the branch.
+- Never force push or use `--force`, `--force-with-lease`, or any equivalent history-rewriting push.
+- Use fast-forward updates when possible; otherwise use merge commits.
 - Create a PR when none exists.
 - If a PR already exists, update it instead of creating a duplicate.
 - Use `Closes #123` for issues labeled `task`.
@@ -38,10 +40,10 @@ description: Prepare, create, or refresh a GitHub PR for a `task` or small direc
 5. Find an existing PR from the issue number, issue URL, `### Pull Request`, PR body closing keyword, or current branch.
 6. If a PR exists, inspect current unresolved PR review comments, current check status, base branch, and mergeability/conflict state.
 7. Replace the active PR feedback subsection under `### Review` with current unresolved comments, failed checks, base mismatch, and merge conflict state.
-8. Fetch the base branch and attempt to merge it into the current branch.
+8. Fetch the base branch and attempt to merge it into the current branch without rebasing.
 9. If the merge has conflicts, abort or leave the repository in a clearly reported conflict state according to git safety, record the conflict under `### Review`, and stop so implementation can resolve it.
 10. Run relevant final checks.
-11. Push the branch.
+11. Push the branch with normal `git push` only; never force push.
 12. Create or update the PR with a body focused on this implementation issue and light parent context.
 13. Update `### Pull Request` with the PR URL.
 

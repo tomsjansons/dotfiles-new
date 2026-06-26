@@ -20,6 +20,9 @@ description: "Implement a specced GitHub `task` or small direct `bug` issue. Use
 - For review-feedback work, stay on the existing implementation branch.
 - Refuse to create or switch branches when there are uncommitted changes.
 - Branch from the base branch named in `### Branch Plan`.
+- Never rebase implementation branches. Use fast-forward when possible, otherwise merge commits.
+- Never force push or use `--force`, `--force-with-lease`, or any equivalent history-rewriting push.
+- If resolving conflicts or incorporating a base branch, merge the base into the implementation branch and commit the merge.
 - Update `### Results` before finishing.
 
 ## Flow
@@ -61,6 +64,15 @@ For new implementation work:
 
 For review-feedback work, do not create a new branch. Stay on the existing implementation branch.
 
+For conflict repair or base updates:
+
+1. Fetch the current base branch.
+2. Fast-forward when possible.
+3. If fast-forward is not possible, merge `origin/BASE_BRANCH` into the implementation branch with a merge commit.
+4. Resolve conflicts in that merge commit.
+5. Do not rebase, reset published history, or force push.
+6. If normal push is rejected because histories diverged, fetch and merge again.
+
 ## Results Section
 
 Replace the previous Results section with current truth:
@@ -89,5 +101,6 @@ git branch --show-current
 git fetch origin BASE_BRANCH
 git switch SUGGESTED_BRANCH
 git switch -c SUGGESTED_BRANCH origin/BASE_BRANCH
+git merge origin/BASE_BRANCH --no-edit
 gh issue edit 123 --body-file issue.md
 ```

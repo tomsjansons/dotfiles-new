@@ -22,6 +22,9 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 - Commit after each `tj-impl` run when code changes need to be preserved in git.
 - Use clear conventional commit messages with `feat:`, `fix:`, or `chore:` prefixes.
 - Push only when local review passes and the branch is ready for PR, or during cycles that address PR review/check feedback.
+- Never rebase workflow branches. Resolve branch updates and conflicts with fast-forward when possible, otherwise merge commits.
+- Never force push or use `--force`, `--force-with-lease`, or any equivalent history-rewriting push.
+- If a branch update would require rewriting published history, stop and report the blocker instead of rebasing or force pushing.
 
 ## Objective
 
@@ -93,6 +96,19 @@ For every issue with a PR:
 - Run `tj-pr` first to record the conflict/current PR state, then run `tj-impl` on the same branch to resolve the conflict.
 - After resolving, run `tj-review`, push, and run `tj-pr` again.
 - Do not skip a task merely because local review passed before the earlier PR was merged.
+
+## Branch Safety
+
+All branch manipulation must preserve published history.
+
+- Do not run `git rebase`, interactive rebase, reset-to-rewrite, cherry-pick ranges as a rebase substitute, or history-editing commands on workflow branches.
+- Update branches by fast-forwarding when possible.
+- If fast-forward is not possible, merge the current base branch into the implementation branch with a merge commit.
+- Resolve conflicts in the merge commit, then continue with local review, push, and PR refresh.
+- Push with normal `git push` only.
+- Never use force push, `--force-with-lease`, or any equivalent option.
+- If Git rejects a normal push because histories diverged, fetch and merge; do not rebase and do not force push.
+- If the situation cannot be repaired without rewriting history, stop and report the blocker.
 
 ## PR Feedback Gate
 
