@@ -1,6 +1,7 @@
 arch = { packages = [
   "7zip", # Archive/compression utility for creating and extracting .7z, zip, tar, and other archives.
   "acpi", # Reads battery, thermal, and AC adapter status from the kernel; useful for laptop power checks and scripts.
+  "age",
   "alacritty", # GPU-accelerated terminal emulator for your shell sessions.
   "android-emulator", # Android emulator runtime for testing Android apps and images locally.
   "android-google-apis-playstore-x86-64-system-image", # Google Play-enabled Android system image used by the Android emulator.
@@ -142,6 +143,7 @@ arch = { packages = [
   "smartmontools", # Disk SMART health monitoring tools.
   "snapshot", # GNOME camera app.
   "sof-firmware", # Sound Open Firmware for modern laptop audio hardware.
+  "sops",
   "spotify", # Spotify desktop client.
   "sqlc", # Generates type-safe code from SQL queries.
   "squashfs-tools", # Tools for creating/extracting SquashFS images, used by ISO/live media workflows.
