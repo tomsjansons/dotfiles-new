@@ -18,6 +18,8 @@ description: Prepare, create, or refresh a GitHub PR for a `task` or small direc
 - Refuse if `### Review` has local `Verdict: blocked` or local blocking findings.
 - Pull and merge the issue's base branch from `### Branch Plan`, not always `main`.
 - For stacked PRs, the Branch Plan base branch and PR base branch must match.
+- Inspect and record current PR mergeability, merge conflicts, and base-branch mismatch for existing PRs.
+- If merging the base branch into the current branch conflicts, stop after recording the conflict under `### Review`; do not hand-resolve conflicts inside `tj-pr`. `tj-loop` should call `tj-impl` to repair the branch.
 - Create a PR when none exists.
 - If a PR already exists, update it instead of creating a duplicate.
 - Use `Closes #123` for issues labeled `task`.
@@ -34,10 +36,10 @@ description: Prepare, create, or refresh a GitHub PR for a `task` or small direc
 3. Verify Results and local Review gates.
 4. Determine current branch and intended base branch from `### Branch Plan`.
 5. Find an existing PR from the issue number, issue URL, `### Pull Request`, PR body closing keyword, or current branch.
-6. If a PR exists, inspect current unresolved PR review comments and current check status.
-7. Replace the active PR feedback subsection under `### Review` with current unresolved comments and failed checks.
-8. Fetch the base branch and merge it into the current branch.
-9. Resolve conflicts if needed.
+6. If a PR exists, inspect current unresolved PR review comments, current check status, base branch, and mergeability/conflict state.
+7. Replace the active PR feedback subsection under `### Review` with current unresolved comments, failed checks, base mismatch, and merge conflict state.
+8. Fetch the base branch and attempt to merge it into the current branch.
+9. If the merge has conflicts, abort or leave the repository in a clearly reported conflict state according to git safety, record the conflict under `### Review`, and stop so implementation can resolve it.
 10. Run relevant final checks.
 11. Push the branch.
 12. Create or update the PR with a body focused on this implementation issue and light parent context.
@@ -54,6 +56,13 @@ Inspect current PR check status. For PR feedback collection:
 3. Pending, queued, waiting, in-progress, or requested checks are not exit conditions.
 4. Record failed, cancelled, timed-out, or needs-attention checks.
 5. If no checks start within 1 minute, record that checks did not start instead of treating the PR as clean.
+
+Inspect current PR mergeability and base state. Record:
+
+- PR base branch differs from `### Branch Plan` base branch
+- PR is not mergeable
+- GitHub reports merge conflicts
+- local merge of `origin/BASE_BRANCH` into the implementation branch conflicts
 
 Replace the active PR feedback subsection under `### Review` using this shape:
 
@@ -72,6 +81,14 @@ Replace the active PR feedback subsection under `### Review` using this shape:
   - Status/conclusion:
   - URL:
   - Summary:
+
+#### PR Mergeability And Base
+
+- Base branch:
+- Expected base from Branch Plan:
+- Mergeable: yes | no | unknown
+- Conflict state: none | GitHub reports conflicts | local base merge conflicts
+- Required action: none | run `tj-impl` to resolve branch/base conflict
 ```
 
 If both sections would be empty, remove the active PR feedback subsection or leave it absent. Do not preserve stale resolved PR review comments in the active feedback section.

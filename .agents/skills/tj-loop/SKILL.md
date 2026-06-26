@@ -23,72 +23,100 @@ description: Orchestrate the full GitHub issue loop for a `feature` or `bug` sco
 - Use clear conventional commit messages with `feat:`, `fix:`, or `chore:` prefixes.
 - Push only when local review passes and the branch is ready for PR, or during cycles that address PR review/check feedback.
 
-## Scope Discovery
+## Objective
+
+Drive every same-scope implementation issue to the best current state without assuming prior state is still valid.
+
+For a parent `feature` or `bug`, the loop objective is complete only when every child `task` issue in that parent scope is one of:
+
+- not ready because it lacks the `ready` label
+- waiting behind an earlier dependency-order issue
+- PR-ready with current PR comments/checks/mergeability refreshed
+- left in `checks-not-started` after PR checks failed to appear within 1 minute
+- explicitly unable to proceed after attempting repair, with the remaining blocker reported
+
+Conflicts, failed checks, and PR review comments are not acceptable end states by themselves. They are repair signals: run `tj-impl`, then `tj-review`, then `tj-pr` until they are resolved or the repair is explicitly unable to proceed.
+
+For a direct `bug`, the objective is complete when that bug's implementation PR is PR-ready, left in `checks-not-started`, or explicitly unable to proceed after attempted repair.
+
+Do not report success for a parent scope from local review alone. Existing PRs must be refreshed with `tj-pr` first because new PR comments, failed checks, closed/merged base branches, or merge conflicts may have appeared since the last run.
+
+## State Discovery
+
+Build current state from GitHub and git before acting:
 
 1. Read the starting issue.
 2. If the starting issue is labeled `task`, read its parent `feature` or `bug` issue.
-3. If the starting issue is a small direct `bug` issue, that `bug` issue is the full scope.
-4. Discover sibling `task` issues only from:
-   - parent `feature` or `bug` issue child issues
-   - blocking and blocked-by relationships inside that same parent scope
-5. Ignore `task` issues that belong to other parent `feature` or `bug` issues, even if they have the `ready` label.
-6. Select the next executable `task` issue from same-scope issues that have the `ready` label and are next in dependency order.
+3. If the starting issue is a small direct `bug` issue, that issue is the full scope.
+4. Discover same-scope child `task` issues from parent-child relationships and blocking/blocked-by relationships.
+5. Ignore issues outside the starting parent scope.
+6. For each same-scope implementation issue, read labels, body, parent, `### Branch Plan`, `### Review`, `### Pull Request`, linked PR, PR comments, PR checks, PR branch, PR base branch, and mergeability/conflict state.
+7. Treat `ready` as technical/functional clarity only. Use blocking/blocked-by relationships separately to decide executable order.
 
-## Main Loop
+## Convergence Loop
 
-For each selected `task` issue or direct `bug` issue:
+Repeatedly choose the highest-priority issue state and move it forward. Use fresh subagent sessions for every delegated skill invocation.
 
-1. Start a fresh subagent session running `tj-impl` with the issue number or URL.
-2. Inspect `git status --short`.
-3. Commit the implementation with a clear conventional commit message.
-4. Start a fresh subagent session running `tj-review` with the same issue number or URL.
-5. Read the issue `### Review` section.
-6. If local review has blocking findings, start a fresh subagent session running `tj-impl` again on the same issue and branch.
-7. Repeat implementation, commit, and local review until `### Review` has no blocking findings.
-8. Push the branch.
-9. Start a fresh subagent session running `tj-pr` with the same issue number or URL.
-10. Inspect the PR result and current PR check status.
-11. If no check runs are visible, wait up to 1 minute for them to start.
-12. If no checks start within 1 minute, leave this PR alone, record/report that checks did not start, and move to the next eligible child `task` issue in the same parent scope.
-13. If checks have started, wait for every PR check to reach a terminal result.
-14. Pending, queued, waiting, in-progress, or requested checks are not terminal results.
-15. If checks are still running after they have started, keep waiting for this PR unless the user asks to move on.
-16. If any PR check fails, is cancelled, times out, needs attention, or if open PR review comments exist, start a fresh subagent session running `tj-pr` once to append current PR problems under `### Review`.
-17. Start a fresh subagent session running `tj-impl` again on the same issue and branch to fix PR feedback.
-18. Commit and push each PR-feedback implementation cycle.
-19. Start a fresh subagent session running `tj-review` locally again before refreshing the PR.
-20. Repeat local review, push, `tj-pr`, check waiting, and PR feedback handling until the issue is PR-ready, or until checks fail to start within 1 minute and the PR is left for later while the loop continues.
+Priority order:
+
+1. Existing PR with merge conflict or stale stacked base
+2. Existing PR with new unresolved PR review comments or failed checks
+3. Existing PR whose feedback/check state has not been refreshed this run
+4. Ready issue next in dependency order with no PR yet
+5. Ready issue next in dependency order whose prior PR was left in `checks-not-started` and should be refreshed
+6. Nothing actionable remains
+
+For the selected issue:
+
+1. If it has an existing PR, start a fresh subagent session running `tj-pr` first. `tj-pr` must refresh PR comments, failed checks, base branch, mergeability, and conflict state into `### Review`.
+2. If the PR has a merge conflict, stale base branch, or stacked-base problem, start a fresh subagent session running `tj-impl` on the same issue and branch to reconcile the branch with its current base, resolve conflicts, and keep the change within the issue scope.
+3. After any conflict or feedback fix, commit changes when local files changed.
+4. Start a fresh subagent session running `tj-review` to review the repaired local diff against the current base branch.
+5. If local review blocks, run fresh `tj-impl` again on the same branch, then fresh `tj-review`, until no local blocking findings remain or the repair cannot proceed.
+6. Push the branch.
+7. Start a fresh subagent session running `tj-pr` again to update the PR and refresh current PR comments/checks/mergeability.
+8. If checks do not start within 1 minute, leave that PR in `checks-not-started` and continue to the next actionable issue.
+9. If checks start, wait for terminal results unless the user asks to move on.
+10. If PR comments, check failures, or merge conflicts remain, repeat this convergence cycle for the same issue before moving on, unless the PR is left in `checks-not-started` or repair is blocked.
+11. If the selected issue has no PR yet, start fresh `tj-impl`, commit, fresh `tj-review`, push, then fresh `tj-pr`.
+12. Continue until no same-scope issue is actionable.
+
+## Stacked PR Base Handling
+
+A stacked PR can become conflicted after an earlier PR is merged. The loop must actively repair this instead of treating prior local review as final.
+
+For every issue with a PR:
+
+- Compare `### Branch Plan` base branch, PR base branch, local branch base, and current GitHub branch state.
+- If an earlier stacked PR was merged, the next PR may need its base changed to the merge target or may need the merged changes incorporated.
+- If the PR reports merge conflicts, is not mergeable, or cannot update from its base, treat that as actionable work.
+- Run `tj-pr` first to record the conflict/current PR state, then run `tj-impl` on the same branch to resolve the conflict.
+- After resolving, run `tj-review`, push, and run `tj-pr` again.
+- Do not skip a task merely because local review passed before the earlier PR was merged.
 
 ## PR Feedback Gate
 
-Treat the issue as blocked when `### Review` includes any of:
+Treat an issue as blocked when current refreshed state includes any of:
 
 - local `Verdict: blocked`
 - local blocking findings
-- open PR review comments appended by `tj-pr`
-- failed PR checks appended by `tj-pr`
+- unresolved PR review comments
+- failed, cancelled, timed-out, or needs-attention PR checks
+- merge conflict or non-mergeable PR state
+- branch/base mismatch for a stacked PR
 
-Treat the issue as PR-ready when:
+Treat an issue as PR-ready when current refreshed state has:
 
-- local review has no blocking findings
-- no open PR review comments are present
-- all visible PR checks have started and reached terminal results
-- no failed, cancelled, timed-out, or needs-attention PR checks are present
+- local review with no blocking findings
+- no unresolved PR review comments
+- all visible PR checks started and reached terminal results
+- no failed, cancelled, timed-out, or needs-attention PR checks
+- no merge conflict
+- PR base branch matches the intended current stack/base state
 
 Pending, queued, waiting, in-progress, or requested PR checks do not count as PR-ready or blocked. Wait until terminal results are known once checks have started.
 
-If no PR checks start within 1 minute, treat that PR as `checks-not-started`: leave it alone, do not treat it as failed or clean, and continue to the next eligible same-scope `task` issue.
-
-## Next `task` Issue Selection
-
-After the current `task` issue or direct `bug` issue reaches PR-ready state, or its PR is left in `checks-not-started` state:
-
-1. If the starting issue was a direct `bug` issue, end after reporting the PR-ready or `checks-not-started` state.
-2. Read the parent `feature` or `bug` issue child `task` issues.
-3. Follow blocking and blocked-by relationships to preserve delivery order.
-4. From the same parent scope, select the next `task` issue that has the `ready` label and is not waiting on an earlier unimplemented `task` issue in the chain.
-5. Start a new branch for the next `task` issue through a fresh subagent session running `tj-impl`; do not reuse the previous branch unless the next `task` issue's `### Branch Plan` names it as the current branch.
-6. If no same-scope `ready` issue is next in dependency order, end or report the dependency/order blocker.
+If no PR checks start within 1 minute, treat that PR as `checks-not-started`: leave it alone, do not treat it as failed or clean, and continue to the next actionable same-scope issue.
 
 ## Commit Guidance
 
