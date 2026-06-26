@@ -74,8 +74,8 @@ For the selected issue:
 1. If it has an existing PR, start a fresh subagent session running `tj-pr` first. `tj-pr` must refresh PR comments, failed checks, base branch, mergeability, and conflict state into `### Review`.
 2. If the PR has a merge conflict, stale base branch, or stacked-base problem, start a fresh subagent session running `tj-impl` on the same issue and branch to reconcile the branch with its current base, resolve conflicts, and keep the change within the issue scope.
 3. After any conflict or feedback fix, commit changes when local files changed.
-4. Start a fresh subagent session running `tj-review` to review the repaired local diff against the current base branch.
-5. If local review blocks, run fresh `tj-impl` again on the same branch, then fresh `tj-review`, until no local blocking findings remain or the repair cannot proceed.
+4. Start a fresh subagent session running `tj-review`; it must use `### Review` state to review only commits since `Last reviewed commit` when valid, and update that state to the current `HEAD`.
+5. If local review blocks, run fresh `tj-impl` again on the same branch, commit fixes, then fresh incremental `tj-review`, until no local blocking findings remain or the repair cannot proceed.
 6. Push the branch.
 7. Start a fresh subagent session running `tj-pr` again to update the PR and refresh current PR comments/checks/mergeability.
 8. If checks do not start within 1 minute, leave that PR in `checks-not-started` and continue to the next actionable issue.
@@ -151,7 +151,7 @@ Prefer one commit after each completed `tj-impl` run. If the implementation run 
 Use these focused skills in fresh subagent sessions instead of duplicating their behavior:
 
 - `tj-impl` for code changes, branch creation, verification, and `### Results`
-- `tj-review` for local review and `### Review`
+- `tj-review` for incremental local review, finding resolution tracking, and `### Review` state
 - `tj-pr` for PR creation/update, PR feedback collection, failed check collection, and PR URL
 
 ## Commands
