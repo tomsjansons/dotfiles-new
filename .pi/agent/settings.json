@@ -10,7 +10,8 @@
     "npm:@howaboua/pi-vent",
     "npm:pi-nvim",
     "npm:pi-subagents",
-    "npm:@quintinshaw/pi-dynamic-workflows"
+    "npm:@quintinshaw/pi-dynamic-workflows",
+    "npm:pi-continuous-learning"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",

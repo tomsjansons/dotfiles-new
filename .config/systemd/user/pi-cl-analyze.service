@@ -1,0 +1,10 @@
+[Unit]
+Description=Pi continuous learning analyzer
+Documentation=https://pi.dev/packages/pi-continuous-learning
+
+[Service]
+Type=oneshot
+ExecStart=/home/toms/.pi/agent/npm/node_modules/.bin/pi-cl-analyze
+
+[Install]
+WantedBy=default.target

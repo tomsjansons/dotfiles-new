@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Pi continuous learning analyzer periodically
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+Unit=pi-cl-analyze.service
+
+[Install]
+WantedBy=timers.target
