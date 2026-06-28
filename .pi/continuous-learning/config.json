@@ -1,0 +1,6 @@
+{
+  "provider": "openai-codex",
+  "model": "gpt-5.4-mini",
+  "timeout_seconds": 120,
+  "dreaming_enabled": true
+}
