@@ -169,12 +169,6 @@ z() {
    esac
  }
 
-export PI_AGENT_NPM_BIN="$HOME/.pi/agent/npm/node_modules/.bin"
-case ":$PATH:" in
-  *":$PI_AGENT_NPM_BIN:"*) ;;
-  *) export PATH="$PI_AGENT_NPM_BIN:$PATH" ;;
-esac
-
 export PNPM_HOME="/home/toms/.local/share/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
