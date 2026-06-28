@@ -1,29 +1,30 @@
 {
-	"lastChangelogVersion": "0.80.2",
-	"defaultThinkingLevel": "medium",
-	"theme": "dark",
-	"defaultProvider": "openai-codex",
-	"defaultModel": "gpt-5.5",
-	"packages": [
-		"npm:pi-web-access",
-		"git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
-		"npm:@howaboua/pi-vent",
-		"npm:pi-nvim",
-		"npm:pi-subagents"
-	],
-	"hideThinkingBlock": false,
-	"transport": "sse",
-	"subagents": {
-		"agentOverrides": {
-			"planner": {
-				"defaultContext": false
-			},
-			"worker": {
-				"defaultContext": false
-			},
-			"oracle": {
-				"defaultContext": false
-			}
-		}
-	}
+  "lastChangelogVersion": "0.80.2",
+  "defaultThinkingLevel": "low",
+  "theme": "dark",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
+  "packages": [
+    "npm:pi-web-access",
+    "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
+    "npm:@howaboua/pi-vent",
+    "npm:pi-nvim",
+    "npm:pi-subagents",
+    "npm:@quintinshaw/pi-dynamic-workflows"
+  ],
+  "hideThinkingBlock": false,
+  "transport": "sse",
+  "subagents": {
+    "agentOverrides": {
+      "planner": {
+        "defaultContext": false
+      },
+      "worker": {
+        "defaultContext": false
+      },
+      "oracle": {
+        "defaultContext": false
+      }
+    }
+  }
 }
