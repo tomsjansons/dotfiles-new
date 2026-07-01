@@ -10,6 +10,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const PREVIEW_LINES = 100;
 const PREVIEW_BYTES = 64_000;
 const SUDO_PROMPT_TOKEN = "__PI_EXECUTE_SSH_SUDO_PASSWORD__";
+const MAX_SUDO_PASSWORD_SENDS = 10;
 
 const executeSshSchema = Type.Object({
 	server: Type.String({
@@ -243,15 +244,22 @@ class PasswordInputDialog implements Component, Focusable {
 }
 
 function isSudoCommand(command: string): boolean {
-	return /^sudo(?:\s|$)/.test(command.trim());
+	return /(^|\n)\s*sudo(?:\s|$)/.test(command);
 }
 
 function buildSudoCommand(command: string): string {
-	return command.replace(/^sudo\b/, `sudo -k -p ${shellQuote(SUDO_PROMPT_TOKEN)}`);
+	return command.replace(/(^|\n)([ \t]*)sudo\b/g, (_match, lineStart: string, indent: string) =>
+		`${lineStart}${indent}sudo -p ${shellQuote(SUDO_PROMPT_TOKEN)}`,
+	);
 }
 
 function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function countOccurrences(text: string, needle: string): number {
+	if (!needle) return 0;
+	return text.split(needle).length - 1;
 }
 
 function redactSecret(text: string, secret: string): string {
@@ -300,17 +308,26 @@ function runSsh(options: {
 		}, options.timeoutMs);
 		timer.unref();
 
-		let passwordSent = false;
+		let passwordSendCount = 0;
 		const sendPasswordIfPrompted = () => {
-			const hasPrompt = stdout.includes(SUDO_PROMPT_TOKEN) || stderr.includes(SUDO_PROMPT_TOKEN);
-			if (hasPrompt) {
-				stdout = stdout.split(SUDO_PROMPT_TOKEN).join("");
-				stderr = stderr.split(SUDO_PROMPT_TOKEN).join("");
+			const stdoutPromptCount = countOccurrences(stdout, SUDO_PROMPT_TOKEN);
+			const stderrPromptCount = countOccurrences(stderr, SUDO_PROMPT_TOKEN);
+			const promptCount = stdoutPromptCount + stderrPromptCount;
+			if (promptCount === 0) return;
+
+			stdout = stdout.split(SUDO_PROMPT_TOKEN).join("");
+			stderr = stderr.split(SUDO_PROMPT_TOKEN).join("");
+
+			if (!options.sudoPassword) return;
+			for (let i = 0; i < promptCount; i++) {
+				if (passwordSendCount >= MAX_SUDO_PASSWORD_SENDS) {
+					stderr += `\nexecute_ssh: exceeded ${MAX_SUDO_PASSWORD_SENDS} sudo password prompts; stopping password responses\n`;
+					child.stdin.end();
+					return;
+				}
+				passwordSendCount += 1;
+				child.stdin.write(`${options.sudoPassword}\n`);
 			}
-			if (!hasPrompt || passwordSent || !options.sudoPassword) return;
-			passwordSent = true;
-			child.stdin.write(`${options.sudoPassword}\n`);
-			setTimeout(() => child.stdin.end(), 100).unref();
 		};
 
 		child.stdout.on("data", (chunk) => {
