@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const PREVIEW_LINES = 100;
@@ -82,10 +83,7 @@ export default function (pi: ExtensionAPI) {
 					});
 				}
 
-				sudoPassword = await ctx.ui.input(
-					"Remote sudo password required",
-					`Server: ${server}\nCommand: ${command}\n\nPassword is sent to remote sudo via ssh stdin and is not returned to the model.`,
-				);
+				sudoPassword = await promptSudoPassword(ctx, server, command);
 
 				if (!sudoPassword) {
 					return textResult("Cancelled: no remote sudo password provided.", true, { server, command });
@@ -135,6 +133,87 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
+}
+
+async function promptSudoPassword(
+	ctx: {
+		mode: string;
+		ui: {
+			input: (title: string, placeholder?: string) => Promise<string | undefined>;
+			custom?: <T>(
+				factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (value: T) => void) => Component,
+				options?: Record<string, unknown>,
+			) => Promise<T>;
+		};
+	},
+	server: string,
+	command: string,
+): Promise<string | undefined> {
+	const title = "Remote sudo password required";
+	const message = `Server: ${server}\nCommand: ${command}`;
+	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
+		return ctx.ui.input(title, `${message}\n\nPassword is sent to remote sudo and is not returned to the model.`);
+	}
+
+	return ctx.ui.custom<string | undefined>(
+		(_tui, _theme, _keybindings, done) => new PasswordInputDialog(title, message, done),
+		{ overlay: true },
+	);
+}
+
+class PasswordInputDialog implements Component, Focusable {
+	focused = false;
+	private value = "";
+
+	constructor(
+		private readonly title: string,
+		private readonly message: string,
+		private readonly done: (value: string | undefined) => void,
+	) {}
+
+	render(width: number): string[] {
+		const innerWidth = Math.max(20, Math.min(width - 4, 90));
+		const border = `+${"-".repeat(innerWidth + 2)}+`;
+		const masked = "*".repeat(this.value.length);
+		const input = `${masked}${this.focused ? CURSOR_MARKER : ""}`;
+		return [
+			border,
+			this.boxLine(this.title, innerWidth),
+			this.boxLine("", innerWidth),
+			...this.message.split("\n").map((line) => this.boxLine(line, innerWidth)),
+			this.boxLine("", innerWidth),
+			this.boxLine(`Password: ${input}`, innerWidth),
+			this.boxLine("", innerWidth),
+			this.boxLine("Enter: submit   Esc/Ctrl-C: cancel", innerWidth),
+			border,
+		];
+	}
+
+	handleInput(data: string): void {
+		if (data === "\r" || data === "\n") {
+			this.done(this.value);
+			return;
+		}
+		if (data === "\x1b" || data === "\x03") {
+			this.done(undefined);
+			return;
+		}
+		if (data === "\x7f" || data === "\b") {
+			this.value = this.value.slice(0, -1);
+			return;
+		}
+		if (data >= " " && data !== "\x7f") {
+			this.value += data;
+		}
+	}
+
+	invalidate(): void {}
+
+	private boxLine(text: string, width: number): string {
+		const clean = text.replace(/[\r\n]/g, " ");
+		const clipped = clean.length > width ? `${clean.slice(0, Math.max(0, width - 1))}…` : clean;
+		return `| ${clipped.padEnd(width)} |`;
+	}
 }
 
 function isSudoCommand(command: string): boolean {
