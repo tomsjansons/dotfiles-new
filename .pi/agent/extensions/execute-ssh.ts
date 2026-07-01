@@ -150,46 +150,70 @@ async function promptSudoPassword(
 	command: string,
 ): Promise<string | undefined> {
 	const title = "Remote sudo password required";
-	const message = `Server: ${server}\nCommand: ${command}`;
+	const message = `Server: ${server}`;
 	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
-		return ctx.ui.input(title, `${message}\n\nPassword is sent to remote sudo and is not returned to the model.`);
+		return ctx.ui.input(
+			title,
+			`${message}\nCommand:\n${command}\n\nPassword is sent to remote sudo and is not returned to the model.`,
+		);
 	}
 
 	return ctx.ui.custom<string | undefined>(
-		(_tui, _theme, _keybindings, done) => new PasswordInputDialog(title, message, done),
-		{ overlay: true },
+		(_tui, _theme, _keybindings, done) => new PasswordInputDialog(title, message, command, done),
+		{ overlay: true, overlayOptions: { width: "90%", maxHeight: "80%" } },
 	);
 }
 
 class PasswordInputDialog implements Component, Focusable {
 	focused = false;
 	private value = "";
+	private scrollOffset = 0;
 
 	constructor(
 		private readonly title: string,
 		private readonly message: string,
+		private readonly command: string,
 		private readonly done: (value: string | undefined) => void,
 	) {}
 
 	render(width: number): string[] {
-		const innerWidth = Math.max(20, Math.min(width - 4, 90));
+		const innerWidth = Math.max(30, Math.min(width - 4, 110));
 		const border = `+${"-".repeat(innerWidth + 2)}+`;
 		const masked = "*".repeat(this.value.length);
 		const input = `${masked}${this.focused ? CURSOR_MARKER : ""}`;
+		const commandLines = this.command.split("\n");
+		const visibleCommandLines = 12;
+		const maxOffset = Math.max(0, commandLines.length - visibleCommandLines);
+		this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
+		const commandWindow = commandLines.slice(this.scrollOffset, this.scrollOffset + visibleCommandLines);
+		const scrollHint = commandLines.length > visibleCommandLines
+			? `Command (${this.scrollOffset + 1}-${Math.min(this.scrollOffset + visibleCommandLines, commandLines.length)} of ${commandLines.length}; Up/Down scroll)`
+			: `Command (${commandLines.length} line${commandLines.length === 1 ? "" : "s"})`;
+
 		return [
 			border,
 			this.boxLine(this.title, innerWidth),
 			this.boxLine("", innerWidth),
 			...this.message.split("\n").map((line) => this.boxLine(line, innerWidth)),
+			this.boxLine(scrollHint, innerWidth),
+			...commandWindow.map((line) => this.boxLine(`  ${line}`, innerWidth)),
 			this.boxLine("", innerWidth),
 			this.boxLine(`Password: ${input}`, innerWidth),
 			this.boxLine("", innerWidth),
-			this.boxLine("Enter: submit   Esc/Ctrl-C: cancel", innerWidth),
+			this.boxLine("Enter: submit   Esc/Ctrl-C: cancel   Up/Down: scroll command", innerWidth),
 			border,
 		];
 	}
 
 	handleInput(data: string): void {
+		if (data === "\u001b[A") {
+			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+			return;
+		}
+		if (data === "\u001b[B") {
+			this.scrollOffset += 1;
+			return;
+		}
 		if (data === "\r" || data === "\n") {
 			this.done(this.value);
 			return;
