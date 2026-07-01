@@ -99,7 +99,7 @@ export default function (pi: ExtensionAPI) {
 					signal,
 				});
 				result.stdout = stripTerminalControls(result.stdout);
-				result.stderr = stripTerminalControls(result.stderr);
+				result.stderr = stripSshSessionNoise(stripTerminalControls(result.stderr));
 				if (sudoPassword) {
 					result.stdout = redactSecret(result.stdout, sudoPassword);
 					result.stderr = redactSecret(result.stderr, sudoPassword);
@@ -261,6 +261,13 @@ function stripTerminalControls(text: string): string {
 	return text
 		.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
 		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function stripSshSessionNoise(text: string): string {
+	return text
+		.split(/\r?\n/)
+		.filter((line) => !/^Connection to .+ closed\.?$/.test(line.trim()))
+		.join("\n");
 }
 
 function runSsh(options: {
