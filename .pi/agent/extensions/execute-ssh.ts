@@ -100,6 +100,8 @@ export default function (pi: ExtensionAPI) {
 					timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 					signal,
 				});
+				result.stdout = stripTerminalControls(result.stdout);
+				result.stderr = stripTerminalControls(result.stderr);
 				if (sudoPassword) {
 					result.stdout = redactSecret(result.stdout, sudoPassword);
 					result.stderr = redactSecret(result.stderr, sudoPassword);
@@ -150,6 +152,12 @@ function shellQuote(value: string): string {
 function redactSecret(text: string, secret: string): string {
 	if (!secret) return text;
 	return text.split(secret).join("[redacted sudo password]");
+}
+
+function stripTerminalControls(text: string): string {
+	return text
+		.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
+		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function runSsh(options: {
