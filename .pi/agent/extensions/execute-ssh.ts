@@ -214,7 +214,7 @@ class PasswordInputDialog implements Component, Focusable {
 			this.scrollOffset += 1;
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (data === "\r" || data === "\n" || data === "\r\n") {
 			this.done(this.value);
 			return;
 		}
@@ -222,13 +222,15 @@ class PasswordInputDialog implements Component, Focusable {
 			this.done(undefined);
 			return;
 		}
-		if (data === "\x7f" || data === "\b") {
+		if (data === "\x7f" || data === "\b" || data === "\x08" || data === "\u001b[3~") {
 			this.value = this.value.slice(0, -1);
 			return;
 		}
-		if (data >= " " && data !== "\x7f") {
-			this.value += data;
-		}
+
+		// Ignore other control/escape sequences so arrow keys, modifiers, etc. never become part of the password.
+		if (data.startsWith("\x1b") || data < " ") return;
+
+		this.value += data;
 	}
 
 	invalidate(): void {}
