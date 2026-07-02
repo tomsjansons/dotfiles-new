@@ -11,6 +11,15 @@ const PREVIEW_LINES = 20;
 const PREVIEW_BYTES = 4_000;
 const SUDO_PROMPT_TOKEN = "__PI_EXECUTE_SSH_SUDO_PASSWORD__";
 const MAX_SUDO_PASSWORD_SENDS = 10;
+const EXECUTE_SSH_SYSTEM_PROMPT = `## execute_ssh Full Output Workflow
+
+When using \`execute_ssh\`:
+1. Treat the tool response preview as a summary only; it may omit important lines.
+2. Always note the exact local temp paths returned by the tool: \`combined.txt\`, \`stdout.txt\`, and \`stderr.txt\`.
+3. If you need details from large output, grep or read those exact local files first. Do not rerun the remote command just to reduce or reformat output.
+4. Prefer \`combined.txt\` for broad searches because it includes command metadata plus stdout and stderr.
+5. Use \`grep\`, \`rg\`, or \`read\` on the local temp files for follow-up analysis, for example \`grep -n "pattern" /tmp/pi-execute-ssh-*/combined.txt\`.
+6. Only rerun \`execute_ssh\` when the previous command did not capture the needed data, the command was wrong, or fresh remote state is required.`;
 
 const executeSshSchema = Type.Object({
 	server: Type.String({
@@ -55,11 +64,15 @@ type OutputFiles = {
 };
 
 export default function (pi: ExtensionAPI) {
+	pi.on("before_agent_start", (event) => ({
+		systemPrompt: `${event.systemPrompt}\n\n${EXECUTE_SSH_SYSTEM_PROMPT}`,
+	}));
+
 	pi.registerTool({
 		name: "execute_ssh",
 		label: "Execute SSH",
 		description:
-			"Execute a command on a remote machine over SSH. You may run commands that use sudo; when sudo is detected, Pi prompts for the remote sudo password and feeds it to sudo over stdin.",
+			"Execute a command on a remote machine over SSH. You may run commands that use sudo; when sudo is detected, Pi prompts for the remote sudo password and feeds it to sudo over stdin. The response preview is truncated. For large outputs, use the exact local temp paths returned by the tool: grep/read combined.txt, stdout.txt, or stderr.txt before rerunning remote commands. Prefer combined.txt for broad searches because it contains metadata, stdout, and stderr.",
 		parameters: executeSshSchema,
 
 		async execute(_toolCallId, params: ExecuteSshParams, signal, _onUpdate, ctx) {
@@ -426,7 +439,7 @@ function formatResult(command: string, result: SshResult, files: OutputFiles): s
 	parts.push(`stdout: ${files.stdoutPath} (${files.stdoutLines} lines, ${files.stdoutBytes} bytes)`);
 	parts.push(`stderr: ${files.stderrPath} (${files.stderrLines} lines, ${files.stderrBytes} bytes)`);
 	parts.push(`combined: ${files.combinedPath} (${files.combinedLines} lines, ${files.combinedBytes} bytes)`);
-	parts.push("The previews below may omit the middle of long output; read the temp files for the full output.");
+	parts.push("Previews are truncated; full output is in the temp files above.");
 
 	if (result.stdout) parts.push(`STDOUT preview:\n${previewText(result.stdout)}`);
 	if (result.stderr) parts.push(`STDERR preview:\n${previewText(result.stderr)}`);
