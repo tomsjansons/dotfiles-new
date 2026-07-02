@@ -1,19 +1,10 @@
-import { execFile } from "node:child_process";
 import type { AgentToolResult, BashToolDetails, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashTool, formatSize } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 
 const ROW_PREFIX = "    ";
 const BASH_ICON = "○";
-const MAX_COMMAND_CHARS = 96;
-const MAX_EXPLANATION_CHARS = 512;
-const MAX_SUMMARY_CHARS = 64;
-const ERROR_SUMMARY_LEFT_PADDING = "        ";
-const SUMMARY_FAILURE_LEFT_PADDING = "        ";
-const COMMAND_SUMMARY_PREFIX = "[pi bash command summary]:";
-const COMMAND_SUMMARY_ERROR_PREFIX = "[pi bash command summary error]:";
-const ERROR_SUMMARY_PREFIX = "[pi bash error summary]:";
-const ERROR_SUMMARY_ERROR_PREFIX = "[pi bash error summary error]:";
+
 
 type ToolStatus = "pending" | "done" | "error";
 
@@ -23,17 +14,10 @@ function statusIcon(status: ToolStatus, theme: any): string {
 	return theme.fg("error", "✗");
 }
 
-function normalizeCommand(command: unknown): string {
-	if (typeof command !== "string") return "<unknown>";
-	return command
-		.replace(/\r?\n/g, " ⏎ ")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-function shorten(text: string, maxChars = MAX_COMMAND_CHARS): string {
-	if (text.length <= maxChars) return text;
-	return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
+function commandLines(command: unknown): string[] {
+	if (typeof command !== "string") return ["command unavailable"];
+	const lines = command.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	return lines.length > 0 ? lines.map((line) => line.replace(/[ \t]+$/g, "")) : [""];
 }
 
 function getTextOutput(result: AgentToolResult<BashToolDetails | undefined>): string {
@@ -71,263 +55,49 @@ function formatOutputStats(result: AgentToolResult<BashToolDetails | undefined>,
 	return theme.fg("muted", ` ${lines} line${lines === 1 ? "" : "s"}, ${formatSize(size)}`);
 }
 
-type SummaryResult = { summary?: string; error?: string };
-type BashDetailsWithSummary = (BashToolDetails & { commandSummary?: string; commandSummaryError?: string }) | undefined;
+function wrapCommandLine(line: string, firstWidth: number, continuationWidth: number): string[] {
+	if (line === "") return [""];
 
-function firstNonEmptyLine(text: unknown): string | undefined {
-	if (typeof text !== "string") return undefined;
-	return text.split("\n").find((line) => line.trim() !== "")?.trim();
+	const wrappedLines: string[] = [];
+	let remaining = line;
+	let width = Math.max(1, firstWidth);
+
+	while (visibleWidth(remaining) > width) {
+		let end = 0;
+		let lastWhitespace = -1;
+		for (let index = 0; index < remaining.length; index += 1) {
+			const candidate = remaining.slice(0, index + 1);
+			if (visibleWidth(candidate) > width) break;
+			end = index + 1;
+			if (/\s/.test(remaining[index])) lastWhitespace = index;
+		}
+
+		const splitAt = lastWhitespace > 0 ? lastWhitespace : Math.max(1, end);
+		wrappedLines.push(remaining.slice(0, splitAt).replace(/[ \t]+$/g, ""));
+		remaining = remaining.slice(splitAt).replace(/^[ \t]+/g, "");
+		width = Math.max(1, continuationWidth);
+	}
+
+	wrappedLines.push(remaining);
+	return wrappedLines;
 }
 
-function formatSummaryProcessError(error: unknown, stderr: string, stdout: string): string {
-	const err = error as { code?: unknown; signal?: unknown; killed?: boolean; message?: string };
-	const stderrLine = firstNonEmptyLine(stderr);
-	const stdoutLine = firstNonEmptyLine(stdout);
+function formatCommand(command: unknown, theme: any, firstPrefix: string, continuationPrefix: string, maxWidth?: number): string {
+	const width = typeof maxWidth === "number" ? Math.max(1, maxWidth) : 120;
+	const renderedLines: string[] = [];
 
-	if (err.code === "ENOENT") return "pi executable not found";
-	if (err.code === "ETIMEDOUT") return "timed out after 10s";
-	if (err.killed && err.signal === "SIGTERM") return "timed out after 10s or was killed";
-	if (typeof err.code === "number") return `pi exited with code ${err.code}${stderrLine ? `: ${shorten(stderrLine, 160)}` : ""}`;
-	if (stderrLine) return `pi failed: ${shorten(stderrLine, 160)}`;
-	if (stdoutLine) return `pi failed: ${shorten(stdoutLine, 160)}`;
-	if (err.message) return shorten(err.message.replace(/\s+/g, " "), 160);
-	return "unknown failure";
-}
+	for (const [lineIndex, line] of commandLines(command).entries()) {
+		const firstSegmentPrefix = lineIndex === 0 ? firstPrefix : continuationPrefix;
+		const firstWidth = Math.max(1, width - visibleWidth(firstSegmentPrefix));
+		const continuationWidth = Math.max(1, width - visibleWidth(continuationPrefix));
+		const wrapped = wrapCommandLine(line, firstWidth, continuationWidth);
+		for (const [wrappedIndex, wrappedLine] of wrapped.entries()) {
+			const prefix = lineIndex === 0 && wrappedIndex === 0 ? firstPrefix : continuationPrefix;
+			renderedLines.push(`${prefix}${theme.fg("accent", wrappedLine)}`);
+		}
+	}
 
-const SHELL_SETUP_COMMANDS = new Set(["cd", "set", "export", "source", "."]);
-const SHELL_WRAPPER_COMMANDS = new Set(["time", "command", "builtin", "exec", "env", "sudo", "doas", "runuser", "nohup", "nice", "ionice", "timeout"]);
-const WRAPPER_OPTIONS_WITH_VALUES: Record<string, Set<string>> = {
-  doas: new Set(["-u", "--user"]),
-  env: new Set(["-C", "--chdir", "-S", "--split-string", "-u", "--unset"]),
-  ionice: new Set(["-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"]),
-  nice: new Set(["-n", "--adjustment"]),
-  runuser: new Set(["-c", "--command", "-g", "--group", "-G", "--supp-group", "-s", "--shell", "-u", "--user"]),
-  sudo: new Set(["-C", "--close-from", "-D", "--chdir", "-g", "--group", "-h", "--host", "-p", "--prompt", "-u", "--user"]),
-  time: new Set(["-f", "--format", "-o", "--output"]),
-  timeout: new Set(["-k", "--kill-after", "-s", "--signal"]),
-};
-
-function splitShellTokens(segment: string): string[] {
-  return segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-}
-
-function cleanShellToken(token: string): string {
-  return token
-    .trim()
-    .replace(/^[([{]+/g, "")
-    .replace(/[)\]}]+$/g, "")
-    .replace(/^['"]|['"]$/g, "")
-    .replace(/^[<>|&;]+/g, "")
-    .replace(/[<>|&;]+$/g, "");
-}
-
-function isShellAssignment(token: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
-}
-
-function isShellRedirection(token: string): boolean {
-  return /^(?:\d*)[<>]/.test(token);
-}
-
-function normalizeToolName(token: string): string | undefined {
-  const base = token.split(/[\\/]/).filter(Boolean).pop() ?? token;
-  const cleaned = base.replace(/[^A-Za-z0-9_.+-].*$/g, "").trim();
-  if (!cleaned) return undefined;
-  if (/^python\d+(?:\.\d+)?$/i.test(cleaned)) return "python";
-  if (/^pip\d+(?:\.\d+)?$/i.test(cleaned)) return "pip";
-  if (/^nodejs$/i.test(cleaned)) return "node";
-  return cleaned;
-}
-
-function wrapperOptionTakesValue(wrapper: string, option: string): boolean {
-  return WRAPPER_OPTIONS_WITH_VALUES[wrapper]?.has(option) ?? false;
-}
-
-function skipWrapperTokens(tokens: string[], wrapperIndex: number, wrapper: string): number {
-  let index = wrapperIndex + 1;
-  while (index < tokens.length) {
-    const token = cleanShellToken(tokens[index]);
-    if (!token || isShellAssignment(token)) {
-      index += 1;
-      continue;
-    }
-    if (token === "--") {
-      index += 1;
-      break;
-    }
-    if (token.startsWith("-")) {
-      const option = token.includes("=") ? token.slice(0, token.indexOf("=")) : token;
-      index += 1;
-      if (!token.includes("=") && wrapperOptionTakesValue(wrapper, option) && index < tokens.length) index += 1;
-      continue;
-    }
-    if (wrapper === "timeout" && /^\d+(?:\.\d+)?[smhd]?$/i.test(token)) {
-      index += 1;
-      continue;
-    }
-    if ((wrapper === "nice" || wrapper === "ionice") && /^-?\d+$/.test(token)) {
-      index += 1;
-      continue;
-    }
-    break;
-  }
-  return index - 1;
-}
-
-function extractCommandTool(segment: string): string | undefined {
-  const tokens = splitShellTokens(segment);
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = cleanShellToken(tokens[index]);
-    if (!token || token.startsWith("#") || isShellAssignment(token) || isShellRedirection(token)) continue;
-
-    const tool = normalizeToolName(token);
-    if (!tool) continue;
-    const toolKey = tool.toLowerCase();
-    if (SHELL_WRAPPER_COMMANDS.has(toolKey)) {
-      index = skipWrapperTokens(tokens, index, toolKey);
-      continue;
-    }
-    return tool;
-  }
-  return undefined;
-}
-
-function inferCommandTool(command: unknown): string | undefined {
-  if (typeof command !== "string") return undefined;
-  const segments = command
-    .replace(/\\\r?\n/g, " ")
-    .split(/\s*(?:&&|\|\||;|\r?\n)\s*/g)
-    .filter((segment) => segment.trim() !== "");
-
-  for (let index = 0; index < segments.length; index += 1) {
-    const tool = extractCommandTool(segments[index]);
-    if (!tool) continue;
-    if (SHELL_SETUP_COMMANDS.has(tool.toLowerCase()) && index < segments.length - 1) continue;
-    return tool;
-  }
-  return undefined;
-}
-
-
-function fallbackCommandSummary(command: unknown): string | undefined {
-  const fallback = normalizeCommand(command);
-  if (!fallback || fallback === "<unknown>") return fallback;
-  return shorten(fallback, MAX_EXPLANATION_CHARS);
-}
-
-function summarizeOneSentence(text: unknown, signal?: AbortSignal, options?: { command?: unknown }): Promise<SummaryResult> {
-  if (typeof text !== "string" || text.trim() === "") return Promise.resolve({});
-
-  const command = options?.command;
-  const commandTool = command === undefined ? undefined : inferCommandTool(command);
-  const prompt =
-    command === undefined
-      ? `Summarize this bash error or output in ${MAX_SUMMARY_CHARS} characters or fewer. Use plain text, no markdown, no backticks, no period. Text: ${text}`
-      : `Explain this shell command as concise plain-text bullets, not prose. Use only short bullet lines. Include sections only when present: - tool: executable or shell builtin used${commandTool ? ` (${commandTool})` : ""}; - args: important positional arguments; - flags: each flag or option and what it means; - pipes/redirection: how data flows through pipes, redirects, or command separators; - effect: what the command does overall. Do not use markdown styling, backticks, paragraphs, or full-sentence prose. Command: ${text}`;
-
-  return new Promise((resolve) => {
-    const child = execFile(
-      "pi",
-      [
-        "--model",
-        "openai-codex/gpt-5.4-mini",
-        "--thinking",
-        "off",
-        "--no-tools",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-themes",
-        "--no-context-files",
-        "--no-session",
-        "--offline",
-        "-p",
-        prompt,
-      ],
-      { timeout: 10_000, maxBuffer: 16 * 1024, encoding: "utf8" },
-      (error, stdout, stderr) => {
-        if (error) {
-          resolve({ error: formatSummaryProcessError(error, stderr, stdout) });
-          return;
-        }
-
-        const cleanOutput = command !== undefined
-          ? stdout.replace(/[`*_#]/g, "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().replace(/[.。]+$/g, "")
-          : stdout.replace(/[`*_#]/g, "").replace(/\s+/g, " ").trim().replace(/[.。]+$/g, "");
-        resolve(cleanOutput ? { summary: shorten(cleanOutput, command !== undefined ? MAX_EXPLANATION_CHARS : MAX_SUMMARY_CHARS) } : { error: "pi produced no summary output" });
-      },
-    );
-    child.stdin?.end();
-
-    const abort = () => {
-      child.kill();
-      resolve({ error: "aborted" });
-    };
-
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-
-    signal?.addEventListener("abort", abort, { once: true });
-    child.once("exit", () => signal?.removeEventListener("abort", abort));
-  });
-}
-
-function attachCommandSummary(
-  result: AgentToolResult<BashToolDetails | undefined>,
-  summary: SummaryResult,
-  command: unknown,
-  fallbackToCommand: boolean,
- ): AgentToolResult<BashDetailsWithSummary> {
-  const commandSummary = summary.summary ?? (fallbackToCommand ? fallbackCommandSummary(command) : undefined);
-  return {
-    ...result,
-    details: { ...((result.details ?? {}) as BashToolDetails), commandSummary, commandSummaryError: summary.error },
-  } as AgentToolResult<BashDetailsWithSummary>;
-}
-
-function appendBashSummariesToError(message: string, command: unknown, commandSummary: SummaryResult, errorSummary: SummaryResult): string {
-  const summaries: string[] = [];
-  const commandSummaryText = commandSummary.summary ?? fallbackCommandSummary(command);
-  if (commandSummaryText) summaries.push(`${COMMAND_SUMMARY_PREFIX} ${commandSummaryText}`);
-  if (commandSummary.error) summaries.push(`${COMMAND_SUMMARY_ERROR_PREFIX} ${commandSummary.error}`);
-  if (errorSummary.summary) summaries.push(`${ERROR_SUMMARY_PREFIX} ${errorSummary.summary}`);
-  if (errorSummary.error) summaries.push(`${ERROR_SUMMARY_ERROR_PREFIX} ${errorSummary.error}`);
-  return summaries.length > 0 ? `${message}\n\n${summaries.join("\n")}` : message;
-}
-
-function extractPrefixedLine(output: string, prefix: string): string | undefined {
-	const line = output.split("\n").find((candidate) => candidate.startsWith(prefix));
-	return line?.slice(prefix.length).trim() || undefined;
-}
-
-function formatErrorSummary(summary: string | undefined, theme: any): string {
-	return summary ? `\n${ERROR_SUMMARY_LEFT_PADDING}${theme.fg("error", summary)}` : "";
-}
-
-function formatSummaryFailure(label: string, summaryError: string | undefined, theme: any): string {
-	return summaryError ? `\n${SUMMARY_FAILURE_LEFT_PADDING}${theme.fg("warning", `${label} failed: ${summaryError}`)}` : "";
-}
-
-function wrapTextToWidth(text: string, width: number): string[] {
-  const wrappedLines: string[] = [];
-  for (const sourceLine of text.split("\n")) {
-    const words = sourceLine.trim().split(/\s+/g).filter(Boolean);
-    const indent = sourceLine.match(/^\s*/)?.[0] ?? "";
-    let current = "";
-    for (const word of words) {
-      const next = current ? `${current} ${word}` : `${indent}${word}`;
-      if (visibleWidth(next) <= width) {
-        current = next;
-        continue;
-      }
-      if (current) wrappedLines.push(current);
-      current = `${indent}  ${word}`;
-    }
-    wrappedLines.push(current);
-  }
-  return wrappedLines.length > 0 ? wrappedLines : [""];
+	return renderedLines.join("\n");
 }
 
 function formatBashRow(
@@ -336,29 +106,17 @@ function formatBashRow(
 	theme: any,
 	stats = "",
 	message?: string,
-	commandExplanation?: string,
 	maxWidth?: number,
-	): string {
-	const rawCommand = normalizeCommand((args as any)?.command);
-	const commandText = rawCommand === "<unknown>" ? "command unavailable" : rawCommand;
-	const explanation = commandExplanation ?? (status === "pending" ? "explaining command…" : undefined);
+): string {
 	const prefix = `${ROW_PREFIX}${statusIcon(status, theme)} ${theme.fg("toolTitle", BASH_ICON)} `;
 	let suffix = stats;
 	if (typeof (args as any)?.timeout === "number") suffix += theme.fg("muted", ` timeout=${(args as any).timeout}s`);
 	if (message) suffix += ` ${theme.fg(status === "error" ? "error" : "muted", message)}`;
 
-	const availableCommandWidth =
-		typeof maxWidth === "number" ? Math.max(1, maxWidth - visibleWidth(prefix) - visibleWidth(suffix)) : MAX_COMMAND_CHARS;
-	const command = truncateToWidth(commandText, Math.min(MAX_COMMAND_CHARS, availableCommandWidth), "…");
-	const row = `${prefix}${theme.fg("accent", command)}${suffix}`;
-	if (!explanation) return row;
-
-	const explanationPrefix = `${ROW_PREFIX}  ${theme.fg("muted", "↳ ")}`;
-	const availableExplanationWidth = typeof maxWidth === "number" ? Math.max(1, maxWidth - visibleWidth(explanationPrefix)) : MAX_EXPLANATION_CHARS;
-	const explanationLines = wrapTextToWidth(shorten(explanation, MAX_EXPLANATION_CHARS), availableExplanationWidth)
-		.map((line) => `${explanationPrefix}${theme.fg("muted", line)}`)
-		.join("\n");
-	return `${row}\n${explanationLines}`;
+	const firstLineWidth = typeof maxWidth === "number" ? Math.max(1, maxWidth - visibleWidth(suffix)) : undefined;
+	const continuationPrefix = `${ROW_PREFIX}  `;
+	const command = formatCommand((args as any)?.command, theme, prefix, continuationPrefix, firstLineWidth);
+	return `${command}${suffix}`;
 }
 
 function renderToolText(renderText: (width: number) => string): any {
@@ -366,9 +124,7 @@ function renderToolText(renderText: (width: number) => string): any {
 		invalidate() {},
 		render(width: number): string[] {
 			const maxWidth = Math.max(1, width);
-			return renderText(maxWidth)
-				.split("\n")
-				.map((line) => truncateToWidth(line, maxWidth, "…"));
+			return renderText(maxWidth).split("\n");
 		},
 	};
 }
@@ -392,95 +148,38 @@ export function registerBashTool(pi: ExtensionAPI): void {
 		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
 		parameters: metadataBash.parameters,
 		renderShell: "self",
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const bash = createBashTool(ctx.cwd);
-      const command = (params as any)?.command;
-      let latestUpdate: AgentToolResult<BashToolDetails | undefined> | undefined;
-      let latestCommandSummary: SummaryResult | undefined;
-
-      const emitUpdate = (update: AgentToolResult<BashToolDetails | undefined>, fallbackToCommand = false) => {
-        onUpdate?.(attachCommandSummary(update, latestCommandSummary ?? {}, command, fallbackToCommand));
-      };
-
-      const emitSummaryUpdate = () => {
-        if (!onUpdate || !latestCommandSummary || (!latestCommandSummary.summary && !latestCommandSummary.error)) return;
-        emitUpdate(latestUpdate ?? { content: [], details: undefined }, false);
-      };
-
-      const fallbackSummary = fallbackCommandSummary(command);
-      if (fallbackSummary) {
-        latestCommandSummary = { summary: fallbackSummary };
-        emitSummaryUpdate();
-      }
-
-      const commandSummaryPromise = summarizeOneSentence(command, signal, { command }).then((summary) => {
-        latestCommandSummary = summary.summary ? summary : { ...summary, summary: fallbackSummary };
-        emitSummaryUpdate();
-        return latestCommandSummary;
-      });
-
-      const wrappedOnUpdate = onUpdate
-        ? (update: AgentToolResult<BashToolDetails | undefined>) => {
-            latestUpdate = update;
-            emitUpdate(update);
-          }
-        : undefined;
-
-      try {
-        const bashResult = await (bash.execute as any)(toolCallId, params, signal, wrappedOnUpdate, ctx);
-        const commandSummary = await commandSummaryPromise;
-        return attachCommandSummary(bashResult, commandSummary, command, true);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const [commandSummary, errorSummary] = await Promise.all([commandSummaryPromise, summarizeOneSentence(message, signal)]);
-        throw new Error(appendBashSummariesToError(message, command, commandSummary, errorSummary));
-      }
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			const bash = createBashTool(ctx.cwd);
+			return (bash.execute as any)(toolCallId, params, signal, onUpdate, ctx);
 		},
 		renderCall(args, theme, context) {
 			if (context.executionStarted || !context.isPartial) return emptyToolRow();
-			return renderToolText((width) => formatBashRow("pending", args, theme, "", undefined, undefined, width));
+			return renderToolText((width) => formatBashRow("pending", args, theme, "", undefined, width));
 		},
-    renderResult(result, { isPartial }, theme, context) {
-      const typedResult = result as AgentToolResult<BashDetailsWithSummary>;
-      const rawOutput = getTextOutput(result as AgentToolResult<BashToolDetails | undefined>);
-      const showStats = !isPartial || rawOutput !== "" || Boolean(typedResult.details?.truncation?.truncated);
-      const stats = showStats ? formatOutputStats(typedResult as AgentToolResult<BashToolDetails | undefined>, theme) : "";
-      const commandSummary = typedResult.details?.commandSummary ?? extractPrefixedLine(rawOutput, COMMAND_SUMMARY_PREFIX);
-      const commandSummaryError = typedResult.details?.commandSummaryError ?? extractPrefixedLine(rawOutput, COMMAND_SUMMARY_ERROR_PREFIX);
-      const errorSummary = extractPrefixedLine(rawOutput, ERROR_SUMMARY_PREFIX);
-      const errorSummaryError = extractPrefixedLine(rawOutput, ERROR_SUMMARY_ERROR_PREFIX);
+		renderResult(result, { isPartial }, theme, context) {
+			const typedResult = result as AgentToolResult<BashToolDetails | undefined>;
+			const rawOutput = getTextOutput(typedResult);
+			const showStats = !isPartial || rawOutput !== "" || Boolean(typedResult.details?.truncation?.truncated);
+			const stats = showStats ? formatOutputStats(typedResult, theme) : "";
 
-      if (isPartial) {
-        return renderToolText(
-          (width) =>
-            formatBashRow("pending", context.args, theme, stats, undefined, commandSummary, width) +
-            formatSummaryFailure("pi command summary", commandSummaryError, theme),
-        );
-      }
+			if (isPartial) {
+				return renderToolText((width) => formatBashRow("pending", context.args, theme, stats, undefined, width));
+			}
 
-      if (context.isError) {
-        return renderToolText(
-          (width) =>
-            formatBashRow(
-              "error",
-              context.args,
-              theme,
-              stats,
-              firstTextLine(result as AgentToolResult<BashToolDetails | undefined>),
-              commandSummary,
-              width,
-            ) +
-            formatErrorSummary(errorSummary, theme) +
-            formatSummaryFailure("pi command summary", commandSummaryError, theme) +
-            formatSummaryFailure("pi error summary", errorSummaryError, theme),
-        );
-      }
+			if (context.isError) {
+				return renderToolText((width) =>
+					formatBashRow(
+						"error",
+						context.args,
+						theme,
+						stats,
+						firstTextLine(typedResult),
+						width,
+					),
+				);
+			}
 
-      return renderToolText(
-        (width) =>
-          formatBashRow("done", context.args, theme, stats, undefined, commandSummary, width) +
-          formatSummaryFailure("pi command summary", commandSummaryError, theme),
-      );
+			return renderToolText((width) => formatBashRow("done", context.args, theme, stats, undefined, width));
 		},
 	});
 }
