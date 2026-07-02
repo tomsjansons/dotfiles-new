@@ -7,8 +7,8 @@ import { Type } from "typebox";
 import { CURSOR_MARKER, matchesKey, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const PREVIEW_LINES = 100;
-const PREVIEW_BYTES = 64_000;
+const PREVIEW_LINES = 20;
+const PREVIEW_BYTES = 4_000;
 const SUDO_PROMPT_TOKEN = "__PI_EXECUTE_SSH_SUDO_PASSWORD__";
 const MAX_SUDO_PASSWORD_SENDS = 10;
 
@@ -441,19 +441,29 @@ function countLines(text: string): number {
 }
 
 function previewText(text: string): string {
-	if (text.length <= PREVIEW_BYTES) return text;
+	if (Buffer.byteLength(text, "utf8") <= PREVIEW_BYTES) return text;
 
 	const lines = text.split(/\r?\n/);
 	if (lines.length > PREVIEW_LINES * 2) {
 		const head = lines.slice(0, PREVIEW_LINES).join("\n");
 		const tail = lines.slice(-PREVIEW_LINES).join("\n");
 		const omitted = lines.length - PREVIEW_LINES * 2;
-		return `${head}\n\n... [${omitted} lines omitted; see temp file for full output] ...\n\n${tail}`;
+		return clampPreview(
+			`${head}\n\n... [${omitted} lines omitted; see temp file for full output] ...\n\n${tail}`,
+			text,
+		);
 	}
 
-	const head = text.slice(0, PREVIEW_BYTES / 2);
-	const tail = text.slice(-PREVIEW_BYTES / 2);
-	const omitted = text.length - PREVIEW_BYTES;
+	return clampPreview(text, text);
+}
+
+function clampPreview(preview: string, original: string): string {
+	if (Buffer.byteLength(preview, "utf8") <= PREVIEW_BYTES) return preview;
+
+	const half = Math.floor(PREVIEW_BYTES / 2);
+	const head = preview.slice(0, half);
+	const tail = preview.slice(-half);
+	const omitted = Math.max(0, Buffer.byteLength(original, "utf8") - Buffer.byteLength(head, "utf8") - Buffer.byteLength(tail, "utf8"));
 	return `${head}\n\n... [${omitted} bytes omitted; see temp file for full output] ...\n\n${tail}`;
 }
 
