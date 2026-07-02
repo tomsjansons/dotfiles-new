@@ -260,12 +260,12 @@ class PasswordInputDialog implements Component, Focusable {
 }
 
 function isSudoCommand(command: string): boolean {
-	return /(^|\n)\s*sudo(?:\s|$)/.test(command);
+	return /(^|\n|;|&&|\|\|)[ \t]*sudo(?:\s|$)/.test(command);
 }
 
 function buildSudoCommand(command: string): string {
-	return command.replace(/(^|\n)([ \t]*)sudo\b/g, (_match, lineStart: string, indent: string) =>
-		`${lineStart}${indent}sudo -S -p ${shellQuote(SUDO_PROMPT_TOKEN)}`,
+	return command.replace(/(^|\n|;|&&|\|\|)([ \t]*)sudo\b/g, (_match, prefix: string, indent: string) =>
+		`${prefix}${indent}sudo -S -p ${shellQuote(SUDO_PROMPT_TOKEN)}`,
 	);
 }
 
