@@ -6,6 +6,7 @@ import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 const ROW_PREFIX = "    ";
 const BASH_ICON = "○";
 const MAX_COMMAND_CHARS = 96;
+const MAX_EXPLANATION_CHARS = 512;
 const MAX_SUMMARY_CHARS = 64;
 const ERROR_SUMMARY_LEFT_PADDING = "        ";
 const SUMMARY_FAILURE_LEFT_PADDING = "        ";
@@ -207,22 +208,11 @@ function inferCommandTool(command: unknown): string | undefined {
   return undefined;
 }
 
-function stripExistingToolPrefix(summary: string): string {
-  return summary.replace(/^[A-Za-z][A-Za-z0-9_.+-]{0,31}:\s*/, "");
-}
-
-function prefixCommandSummary(summary: string, command: unknown): string {
-  const tool = inferCommandTool(command);
-  if (!tool) return shorten(summary, MAX_SUMMARY_CHARS);
-  if (summary.toLowerCase().startsWith(`${tool.toLowerCase()}:`)) return shorten(summary, MAX_SUMMARY_CHARS);
-  return shorten(`${tool}: ${stripExistingToolPrefix(summary)}`, MAX_SUMMARY_CHARS);
-}
 
 function fallbackCommandSummary(command: unknown): string | undefined {
   const fallback = normalizeCommand(command);
   if (!fallback || fallback === "<unknown>") return fallback;
-  const tool = inferCommandTool(command);
-  return shorten(tool ? `${tool}: ${fallback}` : fallback, MAX_SUMMARY_CHARS);
+  return shorten(fallback, MAX_EXPLANATION_CHARS);
 }
 
 function summarizeOneSentence(text: unknown, signal?: AbortSignal, options?: { command?: unknown }): Promise<SummaryResult> {
@@ -233,7 +223,7 @@ function summarizeOneSentence(text: unknown, signal?: AbortSignal, options?: { c
   const prompt =
     command === undefined
       ? `Summarize this bash error or output in ${MAX_SUMMARY_CHARS} characters or fewer. Use plain text, no markdown, no backticks, no period. Text: ${text}`
-      : `Summarize this shell command in ${MAX_SUMMARY_CHARS} characters or fewer. Prefix the summary with the executable or shell tool used followed by a colon and a space${commandTool ? `; use "${commandTool}: " as the prefix` : ""}. Examples: "grep: searching for x or y", "python: running x and y". Use plain text, no markdown, no backticks, no period. Command: ${text}`;
+      : `Explain this shell command as concise plain-text bullets, not prose. Use only short bullet lines. Include sections only when present: - tool: executable or shell builtin used${commandTool ? ` (${commandTool})` : ""}; - args: important positional arguments; - flags: each flag or option and what it means; - pipes/redirection: how data flows through pipes, redirects, or command separators; - effect: what the command does overall. Do not use markdown styling, backticks, paragraphs, or full-sentence prose. Command: ${text}`;
 
   return new Promise((resolve) => {
     const child = execFile(
@@ -261,9 +251,10 @@ function summarizeOneSentence(text: unknown, signal?: AbortSignal, options?: { c
           return;
         }
 
-        let summary = stdout.replace(/[`*_#]/g, "").replace(/\s+/g, " ").trim().replace(/[.。]+$/g, "");
-        if (summary && command !== undefined) summary = prefixCommandSummary(summary, command);
-        resolve(summary ? { summary: shorten(summary, MAX_SUMMARY_CHARS) } : { error: "pi produced no summary output" });
+        const cleanOutput = command !== undefined
+          ? stdout.replace(/[`*_#]/g, "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().replace(/[.。]+$/g, "")
+          : stdout.replace(/[`*_#]/g, "").replace(/\s+/g, " ").trim().replace(/[.。]+$/g, "");
+        resolve(cleanOutput ? { summary: shorten(cleanOutput, command !== undefined ? MAX_EXPLANATION_CHARS : MAX_SUMMARY_CHARS) } : { error: "pi produced no summary output" });
       },
     );
     child.stdin?.end();
@@ -319,18 +310,38 @@ function formatSummaryFailure(label: string, summaryError: string | undefined, t
 	return summaryError ? `\n${SUMMARY_FAILURE_LEFT_PADDING}${theme.fg("warning", `${label} failed: ${summaryError}`)}` : "";
 }
 
+function wrapTextToWidth(text: string, width: number): string[] {
+  const wrappedLines: string[] = [];
+  for (const sourceLine of text.split("\n")) {
+    const words = sourceLine.trim().split(/\s+/g).filter(Boolean);
+    const indent = sourceLine.match(/^\s*/)?.[0] ?? "";
+    let current = "";
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : `${indent}${word}`;
+      if (visibleWidth(next) <= width) {
+        current = next;
+        continue;
+      }
+      if (current) wrappedLines.push(current);
+      current = `${indent}  ${word}`;
+    }
+    wrappedLines.push(current);
+  }
+  return wrappedLines.length > 0 ? wrappedLines : [""];
+}
+
 function formatBashRow(
 	status: ToolStatus,
 	args: unknown,
 	theme: any,
 	stats = "",
 	message?: string,
-	commandSummary?: string,
+	commandExplanation?: string,
 	maxWidth?: number,
- ): string {
-	const fallbackCommand = normalizeCommand((args as any)?.command);
-	const fallback = status === "pending" ? "summarizing command…" : fallbackCommand === "<unknown>" ? "command summary unavailable" : fallbackCommand;
-	const rawCommand = commandSummary ?? fallback;
+	): string {
+	const rawCommand = normalizeCommand((args as any)?.command);
+	const commandText = rawCommand === "<unknown>" ? "command unavailable" : rawCommand;
+	const explanation = commandExplanation ?? (status === "pending" ? "explaining command…" : undefined);
 	const prefix = `${ROW_PREFIX}${statusIcon(status, theme)} ${theme.fg("toolTitle", BASH_ICON)} `;
 	let suffix = stats;
 	if (typeof (args as any)?.timeout === "number") suffix += theme.fg("muted", ` timeout=${(args as any).timeout}s`);
@@ -338,8 +349,16 @@ function formatBashRow(
 
 	const availableCommandWidth =
 		typeof maxWidth === "number" ? Math.max(1, maxWidth - visibleWidth(prefix) - visibleWidth(suffix)) : MAX_COMMAND_CHARS;
-	const command = truncateToWidth(rawCommand, Math.min(MAX_COMMAND_CHARS, availableCommandWidth), "…");
-	return `${prefix}${theme.fg("accent", command)}${suffix}`;
+	const command = truncateToWidth(commandText, Math.min(MAX_COMMAND_CHARS, availableCommandWidth), "…");
+	const row = `${prefix}${theme.fg("accent", command)}${suffix}`;
+	if (!explanation) return row;
+
+	const explanationPrefix = `${ROW_PREFIX}  ${theme.fg("muted", "↳ ")}`;
+	const availableExplanationWidth = typeof maxWidth === "number" ? Math.max(1, maxWidth - visibleWidth(explanationPrefix)) : MAX_EXPLANATION_CHARS;
+	const explanationLines = wrapTextToWidth(shorten(explanation, MAX_EXPLANATION_CHARS), availableExplanationWidth)
+		.map((line) => `${explanationPrefix}${theme.fg("muted", line)}`)
+		.join("\n");
+	return `${row}\n${explanationLines}`;
 }
 
 function renderToolText(renderText: (width: number) => string): any {

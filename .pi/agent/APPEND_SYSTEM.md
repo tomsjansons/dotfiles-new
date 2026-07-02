@@ -27,3 +27,14 @@ Here are concise, generic principles for guiding an LLM toward well-structured, 
 6. **Suppress Horizontal Rules**: Use heading levels (`#`, `##`, `###`) to create visual separation. Overuse of horizontal rules (`---`) creates visual noise and fragments the document.
 7. **Enforce Information Density**: Do not echo the prompt or re-summarize previous points. If a concept (like resume/restore) is explained in a component section, do not create a new section just to restate it.
 8. **Use Ordered Lists for End-to-End Flows**: Describe sequential processes (like a request lifecycle or execution loop) using numbered steps, not bulleted narrative paragraphs.
+
+
+## Git History Policy
+
+Never rebase branches or rewrite shared history.
+
+When integrating upstream changes, use one of these approaches:
+1. Fast-forward only, when possible.
+2. A normal merge commit, when fast-forward is not possible.
+
+Do not use `git rebase`, `git pull --rebase`, or workflows that implicitly rebase.

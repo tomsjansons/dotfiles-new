@@ -1,6 +1,6 @@
 {
-  "lastChangelogVersion": "0.80.2",
-  "defaultThinkingLevel": "low",
+  "lastChangelogVersion": "0.80.3",
+  "defaultThinkingLevel": "medium",
   "theme": "dark",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.5",
@@ -13,7 +13,7 @@
     "npm:@quintinshaw/pi-dynamic-workflows",
     "npm:pi-continuous-learning"
   ],
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "transport": "sse",
   "subagents": {
     "agentOverrides": {
