@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, matchesKey, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const PREVIEW_LINES = 100;
@@ -171,6 +171,7 @@ class PasswordInputDialog implements Component, Focusable {
 	focused = false;
 	private value = "";
 	private scrollOffset = 0;
+	private completed = false;
 
 	constructor(
 		private readonly title: string,
@@ -209,23 +210,26 @@ class PasswordInputDialog implements Component, Focusable {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\u001b[A") {
+		if (this.completed) return;
+
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.cancel();
+			return;
+		}
+
+		if (matchesKey(data, "up")) {
 			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 			return;
 		}
-		if (data === "\u001b[B") {
+		if (matchesKey(data, "down")) {
 			this.scrollOffset += 1;
 			return;
 		}
-		if (data === "\r" || data === "\n" || data === "\r\n") {
-			this.done(this.value);
+		if (matchesKey(data, "enter") || matchesKey(data, "return")) {
+			this.submit();
 			return;
 		}
-		if (data === "\x1b" || data === "\x03") {
-			this.done(undefined);
-			return;
-		}
-		if (data === "\x7f" || data === "\b" || data === "\x08" || data === "\u001b[3~") {
+		if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
 			this.value = this.value.slice(0, -1);
 			return;
 		}
@@ -237,6 +241,16 @@ class PasswordInputDialog implements Component, Focusable {
 	}
 
 	invalidate(): void {}
+
+	private submit(): void {
+		this.completed = true;
+		this.done(this.value);
+	}
+
+	private cancel(): void {
+		this.completed = true;
+		this.done(undefined);
+	}
 
 	private boxLine(text: string, width: number): string {
 		const clean = text.replace(/[\r\n]/g, " ");
