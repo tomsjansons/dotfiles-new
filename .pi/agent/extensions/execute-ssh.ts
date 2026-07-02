@@ -92,9 +92,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			try {
+				const executedCommand = sudo ? buildSudoCommand(command) : command;
 				const result = await runSsh({
 					server,
-					command: sudo ? buildSudoCommand(command) : command,
+					command: executedCommand,
 					sudoPassword,
 					timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 					signal,
@@ -106,14 +107,15 @@ export default function (pi: ExtensionAPI) {
 					result.stderr = redactSecret(result.stderr, sudoPassword);
 				}
 
-				const outputFiles = await writeOutputFiles(server, command, result);
-				const text = formatResult(result, outputFiles);
+				const outputFiles = await writeOutputFiles(server, command, executedCommand, result);
+				const text = formatResult(command, result, outputFiles);
 				return {
 					isError: result.code !== 0 || result.timedOut,
 					content: [{ type: "text" as const, text }],
 					details: {
 						server,
 						command,
+						executedCommand,
 						stdoutPath: outputFiles.stdoutPath,
 						stderrPath: outputFiles.stderrPath,
 						combinedPath: outputFiles.combinedPath,
@@ -249,7 +251,7 @@ function isSudoCommand(command: string): boolean {
 
 function buildSudoCommand(command: string): string {
 	return command.replace(/(^|\n)([ \t]*)sudo\b/g, (_match, lineStart: string, indent: string) =>
-		`${lineStart}${indent}sudo -p ${shellQuote(SUDO_PROMPT_TOKEN)}`,
+		`${lineStart}${indent}sudo -S -p ${shellQuote(SUDO_PROMPT_TOKEN)}`,
 	);
 }
 
@@ -361,7 +363,7 @@ function runSsh(options: {
 	});
 }
 
-async function writeOutputFiles(server: string, command: string, result: SshResult): Promise<OutputFiles> {
+async function writeOutputFiles(server: string, command: string, executedCommand: string, result: SshResult): Promise<OutputFiles> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-execute-ssh-"));
 	const stdoutPath = join(dir, "stdout.txt");
 	const stderrPath = join(dir, "stderr.txt");
@@ -370,7 +372,8 @@ async function writeOutputFiles(server: string, command: string, result: SshResu
 	const stderrContent = result.stderr;
 	const combinedContent = [
 		`server: ${server}`,
-		`command: ${command}`,
+		`called_command: ${command}`,
+		`executed_command: ${executedCommand}`,
 		`exit_code: ${result.code ?? "null"}`,
 		`signal: ${result.signal ?? "none"}`,
 		`timed_out: ${result.timedOut}`,
@@ -402,8 +405,9 @@ async function writeOutputFiles(server: string, command: string, result: SshResu
 	};
 }
 
-function formatResult(result: SshResult, files: OutputFiles): string {
+function formatResult(command: string, result: SshResult, files: OutputFiles): string {
 	const parts: string[] = [];
+	parts.push(`Called command:\n${command}`);
 	parts.push(`Full output written to: ${files.combinedPath}`);
 	parts.push(`stdout: ${files.stdoutPath} (${files.stdoutLines} lines, ${files.stdoutBytes} bytes)`);
 	parts.push(`stderr: ${files.stderrPath} (${files.stderrLines} lines, ${files.stderrBytes} bytes)`);
