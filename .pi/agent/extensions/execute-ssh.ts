@@ -59,7 +59,7 @@ export default function (pi: ExtensionAPI) {
 		name: "execute_ssh",
 		label: "Execute SSH",
 		description:
-			"Execute a command on a remote machine over SSH. For remote sudo commands, Pi prompts for the remote sudo password and feeds it to sudo over stdin.",
+			"Execute a command on a remote machine over SSH. You may run commands that use sudo; when sudo is detected, Pi prompts for the remote sudo password and feeds it to sudo over stdin.",
 		parameters: executeSshSchema,
 
 		async execute(_toolCallId, params: ExecuteSshParams, signal, _onUpdate, ctx) {
