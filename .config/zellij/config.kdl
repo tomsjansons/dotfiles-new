@@ -20,6 +20,18 @@ keybinds clear-defaults=true {
             }
             SwitchToMode "normal"
         }
+        bind "Alt p" {
+          LaunchOrFocusPlugin "file:/home/toms/.config/zellij/plugins/pi-status.wasm" {
+            floating true
+            x "0%"
+            y "0%"
+            width "28"
+            height "100%"
+            pinned true
+            skip_plugin_cache true
+          }
+        }
+
     }
     locked {
         bind "Alt g" { SwitchToMode "normal"; }
