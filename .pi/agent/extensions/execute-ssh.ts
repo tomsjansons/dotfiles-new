@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { CURSOR_MARKER, matchesKey, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_SSH_PORT = 22;
 const PREVIEW_LINES = 20;
 const PREVIEW_BYTES = 4_000;
 const SUDO_PROMPT_TOKEN = "__PI_EXECUTE_SSH_SUDO_PASSWORD__";
@@ -28,6 +29,13 @@ const executeSshSchema = Type.Object({
 	command: Type.String({
 		description: "Command to execute on the remote machine.",
 	}),
+	port: Type.Optional(
+		Type.Integer({
+			description: "Optional SSH port. Defaults to 22.",
+			minimum: 1,
+			maximum: 65535,
+		}),
+	),
 	timeoutMs: Type.Optional(
 		Type.Number({
 			description: "Optional timeout in milliseconds. Defaults to 120000.",
@@ -39,6 +47,7 @@ const executeSshSchema = Type.Object({
 type ExecuteSshParams = {
 	server: string;
 	command: string;
+	port?: number;
 	timeoutMs?: number;
 };
 
@@ -62,6 +71,17 @@ type OutputFiles = {
 	stderrLines: number;
 	combinedLines: number;
 };
+type SshPromptContext = {
+	mode: string;
+	ui: {
+		confirm: (title: string, message: string) => Promise<boolean>;
+		input: (title: string, placeholder?: string) => Promise<string | undefined>;
+		custom?: <T>(
+			factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (value: T) => void) => Component,
+			options?: Record<string, unknown>,
+		) => Promise<T>;
+	};
+};
 
 export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", (event) => ({
@@ -72,12 +92,13 @@ export default function (pi: ExtensionAPI) {
 		name: "execute_ssh",
 		label: "Execute SSH",
 		description:
-			"Execute a command on a remote machine over SSH. You may run commands that use sudo; when sudo is detected, Pi prompts for the remote sudo password and feeds it to sudo over stdin. The response preview is truncated. For large outputs, use the exact local temp paths returned by the tool: grep/read combined.txt, stdout.txt, or stderr.txt before rerunning remote commands. Prefer combined.txt for broad searches because it contains metadata, stdout, and stderr.",
+			"Execute a command on a remote machine over SSH. Pi shows a scrollable command confirmation dialog before running any command. You may run commands that use sudo; when sudo is detected, Pi prompts for the remote sudo password and feeds it to sudo over stdin. The response preview is truncated. For large outputs, use the exact local temp paths returned by the tool: grep/read combined.txt, stdout.txt, or stderr.txt before rerunning remote commands. Prefer combined.txt for broad searches because it contains metadata, stdout, and stderr.",
 		parameters: executeSshSchema,
 
 		async execute(_toolCallId, params: ExecuteSshParams, signal, _onUpdate, ctx) {
 			const server = params.server.trim();
 			const command = params.command.trim();
+			const port = params.port ?? DEFAULT_SSH_PORT;
 
 			if (!server) {
 				return textResult("Missing SSH server.", true, {});
@@ -86,21 +107,30 @@ export default function (pi: ExtensionAPI) {
 				return textResult("Missing remote command.", true, {});
 			}
 
+			if (!Number.isInteger(port) || port < 1 || port > 65535) {
+				return textResult("SSH port must be an integer from 1 to 65535.", true, { server, command, port });
+			}
+			
 			const sudo = isSudoCommand(command);
 			let sudoPassword: string | undefined;
 
-			if (sudo) {
-				if (!ctx.hasUI) {
-					return textResult("Remote sudo password is required, but Pi UI is unavailable.", true, {
-						server,
-						command,
-					});
-				}
+			if (!ctx.hasUI) {
+				return textResult("SSH command confirmation is required, but Pi UI is unavailable.", true, {
+					server,
+					command,
+				});
+			}
 
-				sudoPassword = await promptSudoPassword(ctx, server, command);
+			if (sudo) {
+				sudoPassword = await promptSudoPassword(ctx, server, port, command);
 
 				if (!sudoPassword) {
 					return textResult("Cancelled: no remote sudo password provided.", true, { server, command });
+				}
+			} else {
+				const confirmed = await confirmSshCommand(ctx, server, port, command);
+				if (!confirmed) {
+					return textResult("Cancelled: SSH command was not confirmed.", true, { server, command });
 				}
 			}
 
@@ -108,6 +138,7 @@ export default function (pi: ExtensionAPI) {
 				const executedCommand = sudo ? buildSudoCommand(command) : command;
 				const result = await runSsh({
 					server,
+					port,
 					command: executedCommand,
 					sudoPassword,
 					timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -120,13 +151,14 @@ export default function (pi: ExtensionAPI) {
 					result.stderr = redactSecret(result.stderr, sudoPassword);
 				}
 
-				const outputFiles = await writeOutputFiles(server, command, executedCommand, result);
+				const outputFiles = await writeOutputFiles(server, port, command, executedCommand, result);
 				const text = formatResult(command, result, outputFiles);
 				return {
 					isError: result.code !== 0 || result.timedOut,
 					content: [{ type: "text" as const, text }],
 					details: {
 						server,
+						port,
 						command,
 						executedCommand,
 						stdoutPath: outputFiles.stdoutPath,
@@ -151,22 +183,27 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
+async function confirmSshCommand(ctx: SshPromptContext, server: string, port: number, command: string): Promise<boolean> {
+	const title = "Confirm SSH command";
+	const message = `Server: ${server}\nPort: ${port}`;
+	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
+		return ctx.ui.confirm(title, `${message}\nCommand:\n${command}\n\nRun this command?`);
+	}
+
+	return ctx.ui.custom<boolean>(
+		(_tui, _theme, _keybindings, done) => new CommandConfirmDialog(title, message, command, done),
+		{ overlay: true, overlayOptions: { width: "90%", maxHeight: "80%" } },
+	);
+}
+
+
 async function promptSudoPassword(
-	ctx: {
-		mode: string;
-		ui: {
-			input: (title: string, placeholder?: string) => Promise<string | undefined>;
-			custom?: <T>(
-				factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (value: T) => void) => Component,
-				options?: Record<string, unknown>,
-			) => Promise<T>;
-		};
-	},
+	ctx: SshPromptContext,
 	server: string,
-	command: string,
-): Promise<string | undefined> {
+	port: number,
+	command: string,): Promise<string | undefined> {
 	const title = "Remote sudo password required";
-	const message = `Server: ${server}`;
+	const message = `Server: ${server}\nPort: ${port}`;
 	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
 		return ctx.ui.input(
 			title,
@@ -179,6 +216,79 @@ async function promptSudoPassword(
 		{ overlay: true, overlayOptions: { width: "90%", maxHeight: "80%" } },
 	);
 }
+
+class CommandConfirmDialog implements Component, Focusable {
+	focused = false;
+	private scrollOffset = 0;
+	private completed = false;
+
+	constructor(
+		private readonly title: string,
+		private readonly message: string,
+		private readonly command: string,
+		private readonly done: (value: boolean) => void,
+	) {}
+
+	render(width: number): string[] {
+		const innerWidth = Math.max(30, Math.min(width - 4, 110));
+		const border = `+${"-".repeat(innerWidth + 2)}+`;
+		const commandLines = this.command.split("\n");
+		const visibleCommandLines = 14;
+		const maxOffset = Math.max(0, commandLines.length - visibleCommandLines);
+		this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
+		const commandWindow = commandLines.slice(this.scrollOffset, this.scrollOffset + visibleCommandLines);
+		const scrollHint = commandLines.length > visibleCommandLines
+			? `Command (${this.scrollOffset + 1}-${Math.min(this.scrollOffset + visibleCommandLines, commandLines.length)} of ${commandLines.length}; Up/Down scroll)`
+			: `Command (${commandLines.length} line${commandLines.length === 1 ? "" : "s"})`;
+
+		return [
+			border,
+			this.boxLine(this.title, innerWidth),
+			this.boxLine("", innerWidth),
+			...this.message.split("\n").map((line) => this.boxLine(line, innerWidth)),
+			this.boxLine(scrollHint, innerWidth),
+			...commandWindow.map((line) => this.boxLine(`  ${line}`, innerWidth)),
+			this.boxLine("", innerWidth),
+			this.boxLine("Enter: run command   Esc/Ctrl-C: cancel   Up/Down: scroll command", innerWidth),
+			border,
+		];
+	}
+
+	handleInput(data: string): void {
+		if (this.completed) return;
+
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.complete(false);
+			return;
+		}
+
+		if (matchesKey(data, "up")) {
+			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+			return;
+		}
+		if (matchesKey(data, "down")) {
+			this.scrollOffset += 1;
+			return;
+		}
+		if (matchesKey(data, "enter") || matchesKey(data, "return")) {
+			this.complete(true);
+		}
+	}
+
+	invalidate(): void {}
+
+	private complete(value: boolean): void {
+		this.completed = true;
+		this.done(value);
+	}
+
+	private boxLine(text: string, width: number): string {
+		const clean = text.replace(/[\r\n]/g, " ");
+		const clipped = clean.length > width ? `${clean.slice(0, Math.max(0, width - 1))}…` : clean;
+		return `| ${clipped.padEnd(width)} |`;
+	}
+}
+
 
 class PasswordInputDialog implements Component, Focusable {
 	focused = false;
@@ -311,13 +421,17 @@ function stripSshSessionNoise(text: string): string {
 
 function runSsh(options: {
 	server: string;
+	port: number;
 	command: string;
 	sudoPassword?: string;
 	timeoutMs: number;
 	signal?: AbortSignal;
 }): Promise<SshResult> {
 	return new Promise((resolve, reject) => {
-		const args = options.sudoPassword ? ["-tt", "-o", "BatchMode=yes", options.server, options.command] : [options.server, options.command];
+		const portArgs = ["-p", String(options.port)];
+		const args = options.sudoPassword
+			? ["-tt", "-o", "BatchMode=yes", ...portArgs, options.server, options.command]
+			: [...portArgs, options.server, options.command];
 		const child = spawn("ssh", args, {
 			stdio: ["pipe", "pipe", "pipe"],
 			signal: options.signal,
@@ -390,7 +504,7 @@ function runSsh(options: {
 	});
 }
 
-async function writeOutputFiles(server: string, command: string, executedCommand: string, result: SshResult): Promise<OutputFiles> {
+async function writeOutputFiles(server: string, port: number, command: string, executedCommand: string, result: SshResult): Promise<OutputFiles> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-execute-ssh-"));
 	const stdoutPath = join(dir, "stdout.txt");
 	const stderrPath = join(dir, "stderr.txt");
@@ -399,6 +513,7 @@ async function writeOutputFiles(server: string, command: string, executedCommand
 	const stderrContent = result.stderr;
 	const combinedContent = [
 		`server: ${server}`,
+		`port: ${port}`,
 		`called_command: ${command}`,
 		`executed_command: ${executedCommand}`,
 		`exit_code: ${result.code ?? "null"}`,

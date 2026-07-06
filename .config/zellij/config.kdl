@@ -22,14 +22,26 @@ keybinds clear-defaults=true {
         }
         bind "Alt p" {
           LaunchOrFocusPlugin "file:/home/toms/.config/zellij/plugins/pi-status.wasm" {
-            floating true
-            x "0%"
-            y "0%"
+            move_to_focused_tab true
             width "28"
-            height "100%"
-            pinned true
             skip_plugin_cache true
           }
+          MovePane "Left"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
+          Resize "Decrease Right"
         }
 
     }

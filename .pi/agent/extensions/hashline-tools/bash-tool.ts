@@ -1,6 +1,6 @@
 import type { AgentToolResult, BashToolDetails, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashTool, formatSize } from "@earendil-works/pi-coding-agent";
-import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const ROW_PREFIX = "    ";
 const BASH_ICON = "○";
@@ -124,7 +124,9 @@ function renderToolText(renderText: (width: number) => string): any {
 		invalidate() {},
 		render(width: number): string[] {
 			const maxWidth = Math.max(1, width);
-			return renderText(maxWidth).split("\n");
+			return renderText(maxWidth)
+				.split("\n")
+				.map((line) => truncateToWidth(line, maxWidth, "…"));
 		},
 	};
 }
