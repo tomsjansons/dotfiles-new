@@ -118,6 +118,7 @@ export default function (pi: ExtensionAPI) {
 				return textResult("SSH command confirmation is required, but Pi UI is unavailable.", true, {
 					server,
 					command,
+					port,
 				});
 			}
 
@@ -125,12 +126,12 @@ export default function (pi: ExtensionAPI) {
 				sudoPassword = await promptSudoPassword(ctx, server, port, command);
 
 				if (!sudoPassword) {
-					return textResult("Cancelled: no remote sudo password provided.", true, { server, command });
+					return textResult("Cancelled: no remote sudo password provided.", true, { server, port, command });
 				}
 			} else {
 				const confirmed = await confirmSshCommand(ctx, server, port, command);
 				if (!confirmed) {
-					return textResult("Cancelled: SSH command was not confirmed.", true, { server, command });
+					return textResult("Cancelled: SSH command was not confirmed.", true, { server, port, command });
 				}
 			}
 
@@ -177,7 +178,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				return textResult(`SSH execution failed: ${message}`, true, { server, command });
+				return textResult(`SSH execution failed: ${message}`, true, { server, port, command });
 			}
 		},
 	});
@@ -201,7 +202,8 @@ async function promptSudoPassword(
 	ctx: SshPromptContext,
 	server: string,
 	port: number,
-	command: string,): Promise<string | undefined> {
+	command: string,
+): Promise<string | undefined> {
 	const title = "Remote sudo password required";
 	const message = `Server: ${server}\nPort: ${port}`;
 	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
