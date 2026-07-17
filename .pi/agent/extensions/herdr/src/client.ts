@@ -1,6 +1,6 @@
 import { createConnection } from "node:net";
 
-import type { CreatedTab, HerdrClient, HerdrPane, HerdrTab, RequestOptions } from "./types.ts";
+import type { CreatedTab, HerdrClient, HerdrPane, HerdrPing, HerdrTab, RequestOptions } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
@@ -24,13 +24,13 @@ export class UnixHerdrClient implements HerdrClient {
     this.socketPath = socketPath;
   }
 
-  async ping(options?: RequestOptions): Promise<{ version: string; protocol: number }> {
+  async ping(options?: RequestOptions): Promise<HerdrPing> {
     const result = await this.#request("ping", {}, options);
     this.#expectType(result, "pong");
     if (typeof result.version !== "string" || typeof result.protocol !== "number") {
       throw new HerdrRequestError("ERR_HERDR_RESPONSE", "Herdr ping returned invalid version metadata");
     }
-    return { version: result.version, protocol: result.protocol };
+    return { version: result.version, protocol: result.protocol, capabilities: result.capabilities };
   }
 
   async getPane(paneId: string, options?: RequestOptions): Promise<HerdrPane> {

@@ -1,18 +1,22 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import {
   appendEvent,
   atomicWrite,
   jobArtifactDir,
+  PI_EXECUTE_ROOT,
   persistManifest,
   persistResult,
   publicRecord,
   truncateMiddle,
 } from "./artifacts.ts";
 import { JobProviderRegistry } from "./providers.ts";
+import { currentHostIdentity, isHostProcessAlive } from "./process-ownership.ts";
 import type {
   CompletionDelivery,
+  CrashRecoveryOptions,
+  CrashRecoveryResult,
   JobInvocationContext,
   JobListInput,
   JobListResult,
@@ -21,6 +25,8 @@ import type {
   JobStopInput,
   MutableJobRecord,
   NormalizedJobError,
+  PersistedJob,
+  ProviderRecovery,
   ProviderTerminalResult,
 } from "./types.ts";
 
@@ -28,7 +34,17 @@ const GLOBAL_MANAGER = Symbol.for("dotfiles.piJobs.manager.v1");
 const HISTORY_PAGE_SIZE = 50;
 
 function snapshot(record: MutableJobRecord): JobSnapshot {
-  const { cmd: _cmd, handle: _handle, completion: _completion, deliveryState: _delivery, rootToolCallId: _tool, sessionPath: _path, ...value } = record;
+  const {
+    cmd: _cmd,
+    handle: _handle,
+    completion: _completion,
+    deliveryState: _delivery,
+    rootToolCallId: _tool,
+    sessionPath: _path,
+    hostProcess: _host,
+    providerResource: _resource,
+    ...value
+  } = record;
   return structuredClone(value);
 }
 
@@ -57,6 +73,27 @@ function cursorFor(record: JobSnapshot): string {
   return Buffer.from(JSON.stringify([record.endedAt ?? "", record.id])).toString("base64url");
 }
 
+async function findManifestPaths(root: string): Promise<string[]> {
+  const manifests: string[] = [];
+  const visit = async (path: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(path, { withFileTypes: true });
+    } catch (error: any) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) await visit(child);
+      else if (entry.isFile() && entry.name === "manifest.json") manifests.push(child);
+    }
+  };
+  await visit(root);
+  return manifests.sort();
+}
+
 function parseCursor(cursor: string | undefined): [string, string] | undefined {
   if (!cursor) return undefined;
   try {
@@ -75,6 +112,9 @@ export class JobManager {
   #deliveryHandler?: (delivery: CompletionDelivery) => Promise<void> | void;
   #pendingDeliveries: CompletionDelivery[] = [];
   readonly #suppressedDeliverySessions = new Set<string>();
+  readonly #providerStops = new Map<string, Promise<void>>();
+  readonly #hostIdentity = currentHostIdentity();
+  #recoveryQueue: Promise<void> = Promise.resolve();
 
   setDeliveryHandler(handler: ((delivery: CompletionDelivery) => Promise<void> | void) | undefined): void {
     this.#deliveryHandler = handler;
@@ -125,6 +165,7 @@ export class JobManager {
       artifactDir,
       outputPath,
       startedAt: now.toISOString(),
+      hostProcess: await this.#hostIdentity,
       deliveryState: "none",
     };
     this.#records.set(id, record);
@@ -141,6 +182,11 @@ export class JobManager {
         {
           record,
           invoke: (method, args) => this.#invokeNested(record, method, args),
+          setResource: async (resource) => {
+            record.providerResource = structuredClone(resource);
+            await appendEvent(artifactDir, { type: "provider_resource", kind: resource.kind, at: new Date().toISOString() });
+            await persistManifest(record);
+          },
         },
       );
     } catch (error) {
@@ -150,6 +196,7 @@ export class JobManager {
       record.endedAt = new Date().toISOString();
       record.durationMs = Date.parse(record.endedAt) - Date.parse(record.startedAt);
       await appendEvent(artifactDir, { type: "launch_error", at: record.endedAt, error: normalized });
+      await persistManifest(record);
       await persistResult(record);
       throw error;
     }
@@ -210,8 +257,8 @@ export class JobManager {
     if (record.status !== "starting" && record.status !== "running") return snapshot(record);
     this.#closedLineages.add(record.id);
     const descendants = this.#activeDescendants(record.id);
-    await Promise.allSettled(descendants.map((child) => child.handle?.stop(`parent_${reason}`)));
-    await record.handle?.stop(reason);
+    await Promise.allSettled(descendants.map((child) => this.#stopProvider(child, `parent_${reason}`)));
+    await this.#stopProvider(record, reason);
     await Promise.allSettled(descendants.map((child) => child.completion));
     return record.completion ? await record.completion : snapshot(record);
   }
@@ -219,15 +266,136 @@ export class JobManager {
   async stopSession(sessionId: string, reason: string): Promise<void> {
     this.#suppressedDeliverySessions.add(sessionId);
     this.#pendingDeliveries = this.#pendingDeliveries.filter((delivery) => delivery.job.sessionId !== sessionId);
-    const roots = [...this.#records.values()].filter(
-      (record) => record.sessionId === sessionId && !record.parentJobId && (record.status === "starting" || record.status === "running"),
+    const active = [...this.#records.values()].filter(
+      (record) => record.sessionId === sessionId && (record.status === "starting" || record.status === "running"),
     );
-    await Promise.allSettled(roots.map((record) => this.stop({ id: record.id }, reason)));
+    const activeIds = new Set(active.map((record) => record.id));
+    // A terminal parent no longer cascades lifecycle shutdown to a surviving
+    // async child. Treat each such active subtree as a session-owned root.
+    const activeRoots = active.filter((record) => {
+      let ancestorId = record.parentJobId;
+      while (ancestorId) {
+        if (activeIds.has(ancestorId)) return false;
+        ancestorId = this.#records.get(ancestorId)?.parentJobId;
+      }
+      return true;
+    });
+    await Promise.allSettled(activeRoots.map((record) => this.stop({ id: record.id }, reason)));
   }
 
   get(id: string): JobSnapshot | undefined {
     const record = this.#records.get(id);
     return record ? snapshot(record) : undefined;
+  }
+
+  /** Finalize abandoned on-disk jobs without loading or delivering them. */
+  async recoverStaleArtifacts(options: CrashRecoveryOptions = {}): Promise<CrashRecoveryResult> {
+    let release!: () => void;
+    const previous = this.#recoveryQueue;
+    this.#recoveryQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const result: CrashRecoveryResult = { inspected: 0, recovered: 0, skippedLive: 0, errors: [] };
+      const isAlive = options.isHostAlive ?? isHostProcessAlive;
+      for (const manifestPath of await findManifestPaths(options.artifactRoot ?? PI_EXECUTE_ROOT)) {
+        const artifactDir = dirname(manifestPath);
+        let persisted: PersistedJob;
+        try {
+          persisted = JSON.parse(await readFile(manifestPath, "utf8"));
+        } catch (error) {
+          result.errors.push({ artifactDir, message: `Cannot read manifest: ${error instanceof Error ? error.message : String(error)}` });
+          continue;
+        }
+        if (persisted?.status !== "starting" && persisted?.status !== "running") continue;
+        result.inspected += 1;
+        if (typeof persisted.id !== "string" || (persisted.type !== "js" && persisted.type !== "bash")) {
+          result.errors.push({ artifactDir, message: "Running manifest has an invalid job identity" });
+          continue;
+        }
+        const active = this.#records.get(persisted.id);
+        if (active && (active.status === "starting" || active.status === "running")) {
+          result.skippedLive += 1;
+          continue;
+        }
+        if (persisted.hostProcess) {
+          let hostAlive: boolean;
+          try {
+            hostAlive = await isAlive(persisted.hostProcess);
+          } catch (error) {
+            result.skippedLive += 1;
+            result.errors.push({
+              artifactDir,
+              message: `Cannot verify prior host identity: ${error instanceof Error ? error.message : String(error)}`,
+            });
+            continue;
+          }
+          if (hostAlive) {
+            result.skippedLive += 1;
+            continue;
+          }
+        }
+
+        let recovery: ProviderRecovery | undefined;
+        let recoveryError: NormalizedJobError | undefined;
+        const provider = this.providers.get(persisted.type);
+        if (provider?.recover) {
+          try {
+            recovery = await provider.recover(persisted);
+          } catch (error) {
+            recoveryError = normalizeError(error, "host_lifecycle", "ERR_JOB_CRASH_CLEANUP");
+            result.errors.push({ artifactDir, message: recoveryError.message });
+          }
+        } else if (persisted.providerResource) {
+          recoveryError = normalizeError(
+            errorWithCode("ERR_JOB_CRASH_CLEANUP_UNAVAILABLE", `No recovery handler is registered for ${persisted.type} jobs`),
+            "host_lifecycle",
+            "ERR_JOB_CRASH_CLEANUP_UNAVAILABLE",
+          );
+          result.errors.push({ artifactDir, message: recoveryError.message });
+        }
+
+        const endedAt = (options.now?.() ?? new Date()).toISOString();
+        const finalized = {
+          ...persisted,
+          status: "failed",
+          endedAt,
+          durationMs: Number.isFinite(Date.parse(persisted.startedAt)) ? Date.parse(endedAt) - Date.parse(persisted.startedAt) : undefined,
+          stopReason: "host_crashed",
+          deliveryState: "none",
+          error: {
+            phase: "host_lifecycle",
+            name: "HostCrashedError",
+            code: "ERR_JOB_HOST_CRASHED",
+            message: "The job host exited before the job reached a terminal state; the job was not resumed.",
+            cause: recoveryError,
+          },
+        };
+        try {
+          await appendEvent(artifactDir, {
+            type: "recovery",
+            status: "failed",
+            reason: "host_crashed",
+            at: endedAt,
+            resourceReclaimed: recovery?.reclaimed,
+            cleanupDetail: recovery?.detail,
+            cleanupError: recoveryError,
+          });
+          // Each retained record is replaced atomically; a repeated recovery is idempotent.
+          const serialized = `${JSON.stringify(finalized, null, 2)}\n`;
+          await atomicWrite(join(artifactDir, "result.json"), serialized);
+          await atomicWrite(manifestPath, serialized);
+          result.recovered += 1;
+        } catch (error) {
+          result.errors.push({
+            artifactDir,
+            message: `Cannot finalize crashed job: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+      return result;
+    } finally {
+      release();
+    }
   }
 
   async #invokeNested(parent: MutableJobRecord, method: "job" | "job_list" | "job_stop", args: unknown): Promise<unknown> {
@@ -259,7 +427,7 @@ export class JobManager {
     if (terminal.status !== "completed") {
       this.#closedLineages.add(record.id);
       const descendants = this.#activeDescendants(record.id);
-      await Promise.allSettled(descendants.map((child) => child.handle?.stop(`parent_${terminal.status}`)));
+      await Promise.allSettled(descendants.map((child) => this.#stopProvider(child, `parent_${terminal.status}`)));
       await Promise.allSettled(descendants.map((child) => child.completion));
     }
 
@@ -325,6 +493,17 @@ export class JobManager {
     }
     return false;
   }
+
+  #stopProvider(record: MutableJobRecord, reason: string): Promise<void> {
+    const existing = this.#providerStops.get(record.id);
+    if (existing) return existing;
+    // Defer invocation until after the promise is recorded so concurrent
+    // explicit, session, and descendant cascades share one provider stop.
+    const requested = Promise.resolve().then(() => record.handle?.stop(reason));
+    this.#providerStops.set(record.id, requested);
+    return requested;
+  }
+
   #validateInput(input: JobStartInput): void {
     if (!input || typeof input !== "object") throw errorWithCode("ERR_JOB_INPUT", "job input must be an object");
     if (input.type !== "js" && input.type !== "bash") throw errorWithCode("ERR_JOB_INPUT", "job.type must be js or bash");

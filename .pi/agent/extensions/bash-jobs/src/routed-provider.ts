@@ -9,7 +9,9 @@ import type {
   JobProvider,
   JobStartInput,
   NormalizedJobError,
+  PersistedJob,
   ProviderJobHandle,
+  ProviderRecovery,
   ProviderStartContext,
 } from "@dotfiles/job-runtime";
 
@@ -75,6 +77,15 @@ export class RoutedBashJobProvider implements JobProvider {
       outputPath: context.record.outputPath,
       timeout: input.timeout,
       env: process.env,
+      onOwnedPane: async (pane, paneLabel) => {
+        await context.setResource({
+          kind: "herdr_pane",
+          socketPath: discovered.socketPath,
+          workspaceId: discovered.workspaceId,
+          paneId: pane.pane_id,
+          paneLabel,
+        });
+      },
     });
     return {
       stop: (reason) => handle.stop(reason),
@@ -89,5 +100,21 @@ export class RoutedBashJobProvider implements JobProvider {
         error: result.error ? normalizeError(Object.assign(new Error(result.error.message), result.error)) : undefined,
       })),
     };
+  }
+
+  async recover(job: PersistedJob): Promise<ProviderRecovery> {
+    const resource = job.providerResource;
+    if (resource?.kind === "local_process") return this.#local.recover(job);
+    if (resource?.kind !== "herdr_pane") return { reclaimed: false };
+    const expectedLabel = `__pi_job__${job.id}`;
+    if (resource.paneLabel !== expectedLabel) return { reclaimed: false, detail: "ownership label mismatch" };
+
+    const client = new UnixHerdrClient(resource.socketPath);
+    const pane = (await client.listPanes(resource.workspaceId)).find(
+      (candidate) => candidate.pane_id === resource.paneId && candidate.label === expectedLabel,
+    );
+    if (!pane) return { reclaimed: false };
+    await client.closePane(pane.pane_id);
+    return { reclaimed: true };
   }
 }

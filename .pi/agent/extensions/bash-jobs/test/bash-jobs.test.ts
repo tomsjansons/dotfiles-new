@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { JavaScriptJobProvider, JobManager } from "@dotfiles/job-runtime";
-import { LocalBashJobProvider } from "../src/index.ts";
+import { getGlobalJobManager, JavaScriptJobProvider, JobManager } from "@dotfiles/job-runtime";
+import bashJobsExtension from "../src/extension.ts";
+import { LocalBashJobProvider, RoutedBashJobProvider } from "../src/index.ts";
 
 function context(label: string) {
   return {
@@ -23,6 +27,66 @@ function manager(withJavaScript = false): JobManager {
 async function cleanup(...paths: string[]): Promise<void> {
   await Promise.all(paths.map((path) => rm(path, { recursive: true, force: true })));
 }
+
+test("bash extension does not register its provider on unsupported platforms", () => {
+  const handlers = new Map<string, any[]>();
+  const pi: any = {
+    on(name: string, handler: any) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
+  };
+
+  assert.equal(getGlobalJobManager().providers.get("bash"), undefined);
+  bashJobsExtension(pi, () => "darwin");
+  assert.equal(getGlobalJobManager().providers.get("bash"), undefined);
+  assert.deepEqual([...handlers.keys()], []);
+});
+
+test("Herdr crash cleanup closes only the pane matching the persisted job label", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "bash-recovery-herdr-"));
+  const socketPath = join(dir, "herdr.sock");
+  const methods: string[] = [];
+  const server = createServer((socket) => {
+    let request = "";
+    socket.on("data", (chunk) => {
+      request += chunk.toString("utf8");
+      if (!request.includes("\n")) return;
+      const parsed = JSON.parse(request.slice(0, request.indexOf("\n")));
+      methods.push(parsed.method);
+      const result = parsed.method === "pane.list"
+        ? { type: "pane_list", panes: [{ pane_id: "pane-owned", workspace_id: "workspace-1", tab_id: "tab-1", label: "__pi_job__recover-me" }] }
+        : { type: "ok" };
+      socket.end(`${JSON.stringify({ id: parsed.id, result })}\n`);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  const provider = new RoutedBashJobProvider();
+  const job: any = {
+    id: "recover-me",
+    type: "bash",
+    providerResource: {
+      kind: "herdr_pane",
+      socketPath,
+      workspaceId: "workspace-1",
+      paneId: "pane-owned",
+      paneLabel: "__pi_job__recover-me",
+    },
+  };
+  try {
+    assert.deepEqual(await provider.recover({ ...job, providerResource: { ...job.providerResource, paneLabel: "not-owned" } }), {
+      reclaimed: false,
+      detail: "ownership label mismatch",
+    });
+    assert.deepEqual(methods, []);
+    assert.deepEqual(await provider.recover(job), { reclaimed: true });
+    assert.deepEqual(methods, ["pane.list", "pane.close"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("local bash explicitly runs bash -c and captures combined output", async () => {
   const jobs = manager();

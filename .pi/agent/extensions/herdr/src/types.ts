@@ -3,6 +3,18 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
+/** Capability metadata exposed by Herdr 0.7.3's ping response. */
+export interface HerdrServerCapabilities {
+  live_handoff: boolean;
+  detached_server_daemon: boolean;
+}
+
+export interface HerdrPing {
+  version: string;
+  protocol: number;
+  capabilities?: HerdrServerCapabilities | null;
+}
+
 export interface HerdrContext {
   socketPath: string;
   paneId: string;
@@ -10,6 +22,7 @@ export interface HerdrContext {
   workspaceId: string;
   version: string;
   protocol: number;
+  capabilities: HerdrServerCapabilities;
 }
 
 export interface HerdrTab {
@@ -39,7 +52,7 @@ export interface CreatedTab {
 }
 
 export interface HerdrClient {
-  ping(options?: RequestOptions): Promise<{ version: string; protocol: number }>;
+  ping(options?: RequestOptions): Promise<HerdrPing>;
   getPane(paneId: string, options?: RequestOptions): Promise<HerdrPane>;
   listTabs(workspaceId: string, options?: RequestOptions): Promise<HerdrTab[]>;
   listPanes(workspaceId: string, options?: RequestOptions): Promise<HerdrPane[]>;
@@ -58,6 +71,8 @@ export interface HerdrCommandInput {
   outputPath: string;
   timeout?: number;
   env?: NodeJS.ProcessEnv;
+  /** Called after the reserved label is installed and before user code is launched. */
+  onOwnedPane?: (pane: HerdrPane, paneLabel: string) => Promise<void> | void;
 }
 
 export interface HerdrCommandResult {

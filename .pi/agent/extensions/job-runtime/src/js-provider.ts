@@ -1,11 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { captureOwnedProcess, reclaimOwnedProcessGroup } from "./process-ownership.ts";
 import type {
   JobProvider,
   JobStartInput,
   NormalizedJobError,
+  PersistedJob,
   ProviderJobHandle,
+  ProviderRecovery,
   ProviderStartContext,
   ProviderTerminalResult,
 } from "./types.ts";
@@ -70,6 +73,8 @@ export class JavaScriptJobProvider implements JobProvider {
 
     let settled = false;
     let ready = false;
+    let resourcePersisted = false;
+    let runSent = false;
     let stopStatus: "stopped" | "timed_out" | undefined;
     let stopReason: string | undefined;
     let forceTimer: NodeJS.Timeout | undefined;
@@ -108,17 +113,23 @@ export class JavaScriptJobProvider implements JobProvider {
       }
     };
 
+    const sendRun = (): void => {
+      if (runSent || settled || stopStatus || !ready || !resourcePersisted || !child.connected) return;
+      runSent = true;
+      child.send({
+        kind: "run",
+        jobId: context.record.id,
+        cmd: input.cmd,
+        cwd: context.record.cwd,
+        sourcePath: `${context.record.artifactDir}/source.js`,
+      });
+    };
+
     child.on("message", (message: any) => {
       if (message?.kind === "ready") {
         ready = true;
         if (readyTimer) clearTimeout(readyTimer);
-        child.send({
-          kind: "run",
-          jobId: context.record.id,
-          cmd: input.cmd,
-          cwd: context.record.cwd,
-          sourcePath: `${context.record.artifactDir}/source.js`,
-        });
+        sendRun();
         return;
       }
       if (message?.kind === "rpc_request") {
@@ -188,6 +199,20 @@ export class JavaScriptJobProvider implements JobProvider {
       timeoutTimer.unref?.();
     }
 
+    try {
+      await context.setResource(await captureOwnedProcess(child.pid!, "js"));
+      resourcePersisted = true;
+      sendRun();
+    } catch (error) {
+      await stop("ownership_error");
+      throw error;
+    }
     return { completion, stop };
+  }
+
+  async recover(job: PersistedJob): Promise<ProviderRecovery> {
+    const resource = job.providerResource;
+    if (resource?.kind !== "local_process" || resource.owner !== "js") return { reclaimed: false };
+    return { reclaimed: await reclaimOwnedProcessGroup(resource) };
   }
 }

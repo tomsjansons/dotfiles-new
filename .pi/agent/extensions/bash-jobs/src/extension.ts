@@ -3,8 +3,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { RoutedBashJobProvider } from "./routed-provider.ts";
 
-export default function bashJobs(pi: ExtensionAPI): void {
-  if (process.platform !== "linux") return;
+const detectPlatform = (): NodeJS.Platform => process.platform;
+
+export default function bashJobs(pi: ExtensionAPI, platform: () => NodeJS.Platform = detectPlatform): void {
+  if (platform() !== "linux") return;
   const provider = new RoutedBashJobProvider();
   getGlobalJobManager().providers.register(provider);
 

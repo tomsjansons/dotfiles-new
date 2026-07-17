@@ -7,6 +7,7 @@ import type { MutableJobRecord } from "./types.ts";
 export const MAX_OUTPUT_LINES = 2_000;
 export const MAX_OUTPUT_BYTES = 50 * 1024;
 const TRUNCATION_MARKER = "[truncated]";
+export const PI_EXECUTE_ROOT = join(homedir(), ".pi", "pi-execute");
 
 export interface TruncatedOutput {
   text: string;
@@ -33,7 +34,7 @@ export function jobArtifactDir(input: {
 }): string {
   const sessionPart = `${safeTimestamp(input.sessionTimestamp)}-${input.sessionId}`;
   const jobPart = `${safeTimestamp(input.jobTimestamp)}-${input.jobId}`;
-  return join(homedir(), ".pi", "pi-execute", cwdSlug(input.cwd), sessionPart, jobPart);
+  return join(PI_EXECUTE_ROOT, cwdSlug(input.cwd), sessionPart, jobPart);
 }
 
 export async function atomicWrite(path: string, content: string): Promise<void> {
@@ -68,6 +69,8 @@ export function publicRecord(record: MutableJobRecord): Record<string, unknown> 
     signal: record.signal,
     error: record.error,
     stopReason: record.stopReason,
+    hostProcess: record.hostProcess,
+    providerResource: record.providerResource,
     deliveryState: record.deliveryState,
   };
 }

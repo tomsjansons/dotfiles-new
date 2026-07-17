@@ -1,17 +1,14 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
-async function atomicJson(path, value) {
-  const temporary = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, path);
-}
+import { atomicJson } from "./atomic-json.mjs";
+import { parseRunnerRequestJson, RunnerRequestProtocolError } from "./runner-protocol.mjs";
 
 async function main() {
   const requestPath = process.argv[2];
   if (!requestPath) throw new Error("Missing Herdr job request path");
-  const request = JSON.parse(await readFile(requestPath, "utf8"));
+  const request = parseRunnerRequestJson(await readFile(requestPath, "utf8"));
   const startedAt = new Date().toISOString();
   const output = createWriteStream(request.outputPath, { flags: "a", mode: 0o600 });
   let requestedSignal;
@@ -86,6 +83,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  const diagnostic = error instanceof RunnerRequestProtocolError
+    ? `${error.code}: ${error.message}`
+    : error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`${diagnostic}\n`);
   process.exitCode = 1;
 });

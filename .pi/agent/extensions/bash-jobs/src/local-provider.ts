@@ -1,16 +1,21 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { open, readFile } from "node:fs/promises";
 
-import type {
-  JobProvider,
-  JobStartInput,
-  NormalizedJobError,
-  ProviderJobHandle,
-  ProviderStartContext,
-  ProviderTerminalResult,
+import {
+  captureOwnedProcess,
+  reclaimOwnedProcessGroup,
+  type JobProvider,
+  type JobStartInput,
+  type NormalizedJobError,
+  type PersistedJob,
+  type ProviderJobHandle,
+  type ProviderRecovery,
+  type ProviderStartContext,
+  type ProviderTerminalResult,
 } from "@dotfiles/job-runtime";
 
 const STOP_GRACE_MS = 5_000;
+const START_GATE_SCRIPT = 'IFS= read -r _pi_job_start || exit 125\nexec bash -c "$1"';
 
 function normalizeError(error: unknown, code = "ERR_BASH_LAUNCH", phase = "bootstrap"): NormalizedJobError {
   if (error instanceof Error) {
@@ -48,36 +53,18 @@ export class LocalBashJobProvider implements JobProvider {
       writeQueue = writeQueue.then(() => outputFile.write(chunk).then(() => undefined));
     };
 
-    const child = spawn("bash", ["-c", input.cmd], {
+    // Gate the opaque command until the detached process identity is durable.
+    // This also prevents a short command from exiting before lifecycle listeners
+    // are installed; the command remains an argument and is never interpolated.
+    const child = spawn("bash", ["-c", START_GATE_SCRIPT, "pi-job-bootstrap", input.cmd], {
       cwd: context.record.cwd,
       detached: true,
       env: process.env,
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onSpawn = () => {
-          child.removeListener("error", onError);
-          resolve();
-        };
-        const onError = (error: Error) => {
-          child.removeListener("spawn", onSpawn);
-          reject(error);
-        };
-        child.once("spawn", onSpawn);
-        child.once("error", onError);
-      });
-    } catch (error) {
-      await writeQueue;
-      await outputFile.close();
-      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-        code: (error as any)?.code === "ENOENT" ? "ERR_BASH_NOT_FOUND" : (error as any)?.code,
-      });
-    }
 
     let settled = false;
     let desiredStatus: "stopped" | "timed_out" | undefined;
@@ -149,10 +136,39 @@ export class LocalBashJobProvider implements JobProvider {
       return completion.then(() => undefined);
     };
 
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onSpawn = () => {
+          child.removeListener("error", onError);
+          resolve();
+        };
+        const onError = (error: Error) => {
+          child.removeListener("spawn", onSpawn);
+          reject(error);
+        };
+        child.once("spawn", onSpawn);
+        child.once("error", onError);
+      });
+      await context.setResource(await captureOwnedProcess(child.pid!, "bash"));
+      child.stdin!.end("start\n");
+    } catch (error) {
+      if (child.pid) await stop("ownership_error");
+      else await completion.then(() => undefined);
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        code: (error as any)?.code === "ENOENT" ? "ERR_BASH_NOT_FOUND" : (error as any)?.code,
+      });
+    }
+
     if (input.timeout !== undefined) {
       timeoutTimer = setTimeout(() => void stop("timeout"), input.timeout * 1_000);
       timeoutTimer.unref?.();
     }
     return { completion, stop };
+  }
+
+  async recover(job: PersistedJob): Promise<ProviderRecovery> {
+    const resource = job.providerResource;
+    if (resource?.kind !== "local_process" || resource.owner !== "bash") return { reclaimed: false };
+    return { reclaimed: await reclaimOwnedProcessGroup(resource) };
   }
 }
