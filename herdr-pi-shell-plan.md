@@ -182,11 +182,13 @@ const output = await fs.readFile(child.outputPath, "utf8");
 return { jobs, output };
 ```
 
-#### Minimal TUI renderer
+#### Compact TUI renderer
 
-Use a custom renderer, but keep v1 deliberately tiny. For `job`, render only type/mode, job ID, status, and elapsed/final duration. While a synchronous job runs, issue throttled partial updates only when status or displayed duration changes. Do not render source, output, errors, or paths in either collapsed or expanded state yet. `job_list` and `job_stop` receive equally compact status-only rendering.
+Use self-shell custom renderers so `job`, `job_list`, and `job_stop` appear as compact, unboxed status rows matching the direct file tools. A settled call occupies one row rather than separate call/result rows and shows type/mode, job ID, status, and elapsed/final duration. While a synchronous job runs, issue throttled partial updates only when status or displayed duration changes.
 
-This is presentation-only: model-facing results and async completion still contain bounded output/diagnostics and `output.yaml` paths.
+Submitted JavaScript/bash source is hidden by default. `/job-details on|off` toggles full, width-wrapped command lines beneath subsequent `job` rows for the current extension session; startup/reload defaults it to off. Output, errors, and artifact paths remain model-result content rather than collapsed TUI detail.
+
+This is presentation-only: model-facing results and async completion still contain bounded output/diagnostics and `output.yaml` or `output.log` paths.
 
 #### Job-provider seam
 
@@ -580,7 +582,7 @@ Never run this suite against the user's normal workspace by default.
 13. **Resolved:** only async root jobs notify/wake the originating session; nested jobs stay silent unless the parent explicitly returns their information.
 14. **Resolved:** every provider survives `/reload`, stops on `/new`/`/resume`/`/fork`/Pi quit, and reclaims stale owned resources without resuming after crashes.
 15. **Resolved/out of scope:** leave Pi's existing `!command` / `user_bash` behavior untouched.
-16. **Resolved:** no config, minimal renderer, local unpublished packages, Linux-only, and full diagnostics across providers.
+16. **Resolved:** no config, compact self-shell renderer, local unpublished packages, Linux-only, and full diagnostics across providers.
 17. **Resolved:** `job` has no default timeout; explicit positive timeout uses seconds.
 18. **Resolved:** console throws guidance, stdio is ignored, output comes from return, no read/wait job operations exist, and JS may use raw filesystem/network APIs.
 19. **Resolved:** transcript output is limited to 2,000 lines/50 KiB with prefix + `[truncated]` + suffix; `output.yaml` stays complete.
@@ -592,7 +594,7 @@ Never run this suite against the user's normal workspace by default.
 25. **Resolved:** all v1 job/provider policies are fixed with no configuration file.
 26. **Resolved:** failures persist full normalized phase/code/message/cause/stack/exit diagnostics mapped to `source.js`.
 27. **Resolved:** v1 supports Linux only.
-28. **Resolved:** minimal job TUI shows only type/mode, ID, status, and duration.
+28. **Resolved:** job tools render as unboxed one-row status lines; `/job-details on|off` optionally shows full submitted JavaScript/bash command lines and defaults off after startup/reload.
 29. **Resolved:** packages are local workspace-only with no publication setup.
 30. **Resolved:** the direct `execute` tool and separate bash/execution lifecycle functions are removed; nested jobs are allowed through the shared toolset.
 31. **Resolved:** the bash provider explicitly launches `bash -c` in both local and Herdr modes; it never executes agent commands through the user's configured pane shell.

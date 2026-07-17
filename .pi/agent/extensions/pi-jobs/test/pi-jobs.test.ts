@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import test from "node:test";
 
 import extension from "../src/index.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 function setup() {
   const tools = new Map<string, any>();
@@ -53,6 +54,75 @@ test("disables bash on session start and exposes /bash-tool on|off", async () =>
   assert.equal(getActiveTools().includes("bash"), false);
   await command.handler("invalid", ctx);
   assert.deepEqual(notifications.at(-1), { message: "Usage: /bash-tool on|off", level: "warning" });
+});
+
+const theme = { fg: (_color: string, text: string) => text };
+
+function completedJob(type: "js" | "bash" = "js") {
+  return {
+    id: `job-${type}`,
+    type,
+    mode: "sync",
+    status: "completed",
+    cwd: "/tmp/project",
+    sessionId: "session",
+    rootJobId: `job-${type}`,
+    artifactDir: `/tmp/job-${type}`,
+    outputPath: `/tmp/job-${type}/output`,
+    startedAt: "2026-07-17T00:00:00.000Z",
+    endedAt: "2026-07-17T00:00:01.000Z",
+    durationMs: 1_000,
+  };
+}
+
+test("renders job tools as compact self-shell rows", () => {
+  const { tools } = setup();
+  const job = tools.get("job");
+  assert.equal(job.renderShell, "self");
+  assert.deepEqual(job.renderCall({ type: "js", cmd: "return 1" }, theme, { isPartial: false }).render(120), []);
+
+  const component = job.renderResult(
+    { details: { operation: "job", job: completedJob("js") } },
+    { isPartial: false },
+    theme,
+    { args: { type: "js", mode: "sync", cmd: "return 1" }, isError: false },
+  );
+  const lines = component.render(120);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /✓ .*js\/sync job-js completed 1\.0s/);
+  assert.doesNotMatch(lines[0], /return 1/);
+});
+
+test("/job-details on|off toggles full JavaScript and bash commands", async () => {
+  const { tools, commands, notifications, ctx } = setup();
+  const job = tools.get("job");
+  const command = commands.get("job-details");
+  assert.ok(command);
+
+  await command.handler("on", ctx);
+  for (const [type, cmd] of [["js", "const value = 1;\nreturn value"], ["bash", "printf 'bash details\\n'"]] as const) {
+    const component = job.renderResult(
+      { details: { operation: "job", job: completedJob(type) } },
+      { isPartial: false },
+      theme,
+      { args: { type, mode: "sync", cmd }, isError: false },
+    );
+    const rendered = component.render(40).join("\n");
+    for (const line of cmd.split("\n")) assert.match(rendered, new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.ok(component.render(40).every((line: string) => visibleWidth(line) <= 40));
+  }
+
+  await command.handler("off", ctx);
+  const hidden = job.renderResult(
+    { details: { operation: "job", job: completedJob("bash") } },
+    { isPartial: false },
+    theme,
+    { args: { type: "bash", mode: "sync", cmd: "printf hidden" }, isError: false },
+  ).render(120).join("\n");
+  assert.doesNotMatch(hidden, /printf hidden/);
+
+  await command.handler("invalid", ctx);
+  assert.deepEqual(notifications.at(-1), { message: "Usage: /job-details on|off", level: "warning" });
 });
 
 test("outer job tool runs JavaScript and job_list sees terminal history", async () => {

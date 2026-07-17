@@ -21,6 +21,15 @@ JavaScript jobs:
 
 There are no job read/wait operations. Use normal Pi `read` outside JavaScript, `node:fs/promises` inside JavaScript, and ordinary Promise timers with `job_list` for waiting.
 
+## TUI rendering
+
+Job tools use compact, unboxed status rows matching the file-tool presentation. Full submitted JavaScript or bash commands are hidden by default. Toggle them for subsequent job rows with:
+
+- `/job-details on`
+- `/job-details off`
+
+A session start or `/reload` restores the default of off.
+
 ## Standalone bash tool
 
 The model-facing standalone `bash` tool is inactive by default but remains registered. Toggle it for the current session with:

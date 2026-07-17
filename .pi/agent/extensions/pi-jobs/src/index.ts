@@ -11,7 +11,7 @@ import {
   type JobStartInput,
 } from "@dotfiles/job-runtime";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 const jobSchema = Type.Object({
@@ -58,19 +58,96 @@ function runningText(job: JobSnapshot): string {
   return `${job.type} job ${job.id}: ${job.status} (${((Date.now() - Date.parse(job.startedAt)) / 1_000).toFixed(1)}s)`;
 }
 
-function compactDetails(details: JobToolDetails | undefined): string {
-  if (details?.job) {
-    const job = details.job;
-    const duration = job.durationMs === undefined ? "" : ` ${(job.durationMs / 1_000).toFixed(1)}s`;
-    return `${job.type}/${job.mode} ${job.id} ${job.status}${duration}`;
-  }
-  if (details?.list) return `${details.list.running.length} running, ${details.list.nonRunningCount} non-running`;
-  return details?.operation ?? "job";
+type ToolStatus = "pending" | "done" | "error";
+const ROW_PREFIX = "    ";
+const COMMAND_PREFIX = "      ";
+
+function statusIcon(status: ToolStatus, theme: any): string {
+  if (status === "pending") return theme.fg("warning", "●");
+  if (status === "done") return theme.fg("success", "✓");
+  return theme.fg("error", "✗");
+}
+
+function jobIcon(type: unknown, theme: any): string {
+  return theme.fg(type === "bash" ? "warning" : "accent", "◆");
+}
+
+function emptyToolRow(): Text {
+  return new Text("", 0, 0);
+}
+
+function firstTextLine(result: any): string | undefined {
+  const content = result?.content?.find((entry: any) => entry?.type === "text");
+  return content?.text?.split("\n").find((line: string) => line.trim() !== "");
+}
+
+function visualStatus(job: JobSnapshot | undefined, isError: boolean): ToolStatus {
+  if (isError) return "error";
+  if (!job || job.status === "starting" || job.status === "running") return "pending";
+  return job.status === "completed" ? "done" : "error";
+}
+
+function formatJobHeader(
+  args: any,
+  details: JobToolDetails | undefined,
+  isError: boolean,
+  theme: any,
+  message?: string,
+): string {
+  const job = details?.job;
+  const type = job?.type ?? args?.type ?? "job";
+  const mode = job?.mode ?? args?.mode ?? "sync";
+  const status = visualStatus(job, isError);
+  let text = `${ROW_PREFIX}${statusIcon(status, theme)} ${jobIcon(type, theme)} ${theme.fg("toolTitle", `${type}/${mode}`)}`;
+  if (job?.id) text += ` ${theme.fg("muted", job.id)}`;
+  if (job?.status) text += ` ${theme.fg(status === "error" ? "error" : "muted", job.status)}`;
+  if (job?.durationMs !== undefined) text += theme.fg("muted", ` ${(job.durationMs / 1_000).toFixed(1)}s`);
+  if (message) text += ` ${theme.fg("error", message)}`;
+  return text;
+}
+
+function renderJobRow(
+  args: any,
+  details: JobToolDetails | undefined,
+  isError: boolean,
+  showCommand: boolean,
+  theme: any,
+  message?: string,
+): any {
+  return {
+    invalidate() {},
+    render(width: number): string[] {
+      const maxWidth = Math.max(1, width);
+      const lines = [truncateToWidth(formatJobHeader(args, details, isError, theme, message), maxWidth, "…")];
+      if (!showCommand || typeof args?.cmd !== "string") return lines;
+      const commandWidth = Math.max(1, maxWidth - visibleWidth(COMMAND_PREFIX));
+      for (const sourceLine of args.cmd.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")) {
+        if (sourceLine === "") {
+          lines.push(COMMAND_PREFIX);
+          continue;
+        }
+        for (const wrapped of wrapTextWithAnsi(theme.fg("accent", sourceLine), commandWidth)) {
+          lines.push(`${COMMAND_PREFIX}${wrapped}`);
+        }
+      }
+      return lines;
+    },
+  };
+}
+
+function renderSummaryRow(text: string, status: ToolStatus, theme: any): Text {
+  return new Text(`${ROW_PREFIX}${statusIcon(status, theme)} ${theme.fg("toolTitle", text)}`, 0, 0);
+}
+
+function listSummary(details: JobToolDetails | undefined): string {
+  if (!details?.list) return "job_list";
+  return `job_list ${details.list.running.length} running ${details.list.nonRunningCount} non-running`;
 }
 
 export default function piJobs(pi: ExtensionAPI): void {
   const manager = getGlobalJobManager();
   manager.providers.register(new JavaScriptJobProvider());
+  let showJobDetails = false;
 
   pi.registerTool({
     name: "job",
@@ -83,6 +160,7 @@ export default function piJobs(pi: ExtensionAPI): void {
       "Read complete job output from outputPath: use the normal read tool outside JavaScript or node:fs/promises inside it.",
       "Nested jobs never notify automatically; explicitly return child metadata/output paths when they should be surfaced.",
     ],
+    renderShell: "self",
     parameters: jobSchema,
     executionMode: "parallel",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -123,11 +201,20 @@ export default function piJobs(pi: ExtensionAPI): void {
         }
       }
     },
-    renderCall(args, theme) {
-      return new Text(theme.fg("toolTitle", `job ${args.type}/${args.mode ?? "sync"}`), 0, 0);
+    renderCall(args, theme, context) {
+      if (!context.isPartial) return emptyToolRow();
+      return renderJobRow(args, undefined, false, showJobDetails, theme);
     },
-    renderResult(result, _options, theme) {
-      return new Text(theme.fg("muted", compactDetails(result.details as JobToolDetails | undefined)), 0, 0);
+    renderResult(result, { isPartial }, theme, context) {
+      const details = result.details as JobToolDetails | undefined;
+      return renderJobRow(
+        context.args,
+        details,
+        context.isError,
+        showJobDetails,
+        theme,
+        !isPartial && context.isError ? firstTextLine(result) : undefined,
+      );
     },
   });
 
@@ -138,6 +225,7 @@ export default function piJobs(pi: ExtensionAPI): void {
       "List managed jobs. With no arguments, returns every running job plus the current session non-running count. include='non-running' returns the newest 50 terminal jobs and nextCursor; include='all' adds all running jobs. Optional type filter applies before pagination.",
     promptSnippet: "List running or retained managed jobs",
     parameters: jobListSchema,
+    renderShell: "self",
     executionMode: "parallel",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const result = manager.list(params as JobListInput, ctx.sessionManager.getSessionId());
@@ -146,11 +234,16 @@ export default function piJobs(pi: ExtensionAPI): void {
         details: { operation: "job_list", list: result },
       };
     },
-    renderCall(_args, theme) {
-      return new Text(theme.fg("toolTitle", "job_list"), 0, 0);
+    renderCall(_args, theme, context) {
+      if (!context.isPartial) return emptyToolRow();
+      return renderSummaryRow("job_list", "pending", theme);
     },
-    renderResult(result, _options, theme) {
-      return new Text(theme.fg("muted", compactDetails(result.details as JobToolDetails | undefined)), 0, 0);
+    renderResult(result, { isPartial }, theme, context) {
+      return renderSummaryRow(
+        listSummary(result.details as JobToolDetails | undefined),
+        context.isError ? "error" : isPartial ? "pending" : "done",
+        theme,
+      );
     },
   });
 
@@ -162,6 +255,7 @@ export default function piJobs(pi: ExtensionAPI): void {
     promptSnippet: "Stop a managed job and its descendants",
     parameters: jobStopSchema,
     executionMode: "parallel",
+    renderShell: "self",
     async execute(_toolCallId, params) {
       const result = await manager.stop(params);
       return {
@@ -169,11 +263,20 @@ export default function piJobs(pi: ExtensionAPI): void {
         details: { operation: "job_stop", job: result },
       };
     },
-    renderCall(args, theme) {
-      return new Text(theme.fg("toolTitle", `job_stop ${args.id}`), 0, 0);
+    renderCall(args, theme, context) {
+      if (!context.isPartial) return emptyToolRow();
+      return renderSummaryRow(`job_stop ${args.id}`, "pending", theme);
     },
-    renderResult(result, _options, theme) {
-      return new Text(theme.fg("muted", compactDetails(result.details as JobToolDetails | undefined)), 0, 0);
+    renderResult(result, { isPartial }, theme, context) {
+      const details = result.details as JobToolDetails | undefined;
+      return renderJobRow(
+        { type: details?.job?.type, mode: details?.job?.mode },
+        details,
+        context.isError,
+        false,
+        theme,
+        !isPartial && context.isError ? firstTextLine(result) : undefined,
+      );
     },
   });
 
@@ -183,6 +286,19 @@ export default function piJobs(pi: ExtensionAPI): void {
     else activeTools.delete("bash");
     pi.setActiveTools([...activeTools]);
   };
+
+  pi.registerCommand("job-details", {
+    description: "Show or hide full JavaScript/bash commands in job tool rows: /job-details on|off",
+    handler: async (args, ctx) => {
+      const requested = args.trim().toLowerCase();
+      if (requested !== "on" && requested !== "off") {
+        ctx.ui.notify("Usage: /job-details on|off", "warning");
+        return;
+      }
+      showJobDetails = requested === "on";
+      ctx.ui.notify(`Job command details ${showJobDetails ? "enabled" : "disabled"}.`, "info");
+    },
+  });
 
   pi.registerCommand("bash-tool", {
     description: "Enable or disable the model-facing bash tool: /bash-tool on|off",
