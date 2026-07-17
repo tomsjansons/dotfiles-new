@@ -3,4 +3,6 @@ packages:
   - hashline-tools
   - idle-notify
   - gpt-preamble
+  - job-runtime
+  - pi-jobs
   - pi-lsp

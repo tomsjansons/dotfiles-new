@@ -7,6 +7,8 @@
 		"at-preload",
 		"hashline-tools",
 		"gpt-preamble",
+		"job-runtime",
+		"pi-jobs",
 		"pi-lsp"
 	],
 	"dependencies": {

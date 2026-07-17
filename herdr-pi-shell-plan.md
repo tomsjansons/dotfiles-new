@@ -1,6 +1,6 @@
 # Herdr-backed Pi shell plan
 
-Status: **provisional; implementation must not start until the grilling questions are resolved.**
+Status: **tool surface confirmed; step-one JavaScript job runtime implemented, step-two bash/Herdr provider pending.**
 
 ## Architectural reset
 
@@ -10,43 +10,48 @@ Herdr-backed bash is now **step two**, not the foundation. The design has two or
 
 The model-facing tool surface is intentionally divided by role:
 
-- **Work tools stay direct in the agent context.** `read`, `write`, `edit`, `vent`, and similar tools remain ordinary Pi tools. The model calls them normally, so their results and mutations remain visible in the conversation and retain their native renderers, safety hooks, and semantics.
-- **Orchestration, execution, and control capabilities live behind `execute`.** Subagent coordination, long-running processes, waits, result inspection, planning, review orchestration, and lifecycle control are JavaScript globals available inside `execute`, not separate model-facing tool definitions.
-- **Bash is the sole dual-surface exception.** Simple foreground bash remains a normal direct Pi tool. The same Herdr-backed bash module also registers sync/async bash and job-control functions inside `execute`.
+- **Pi work tools stay direct in the agent context.** `read`, `write`, `edit`, `vent`, and similar tools remain ordinary Pi tools with native renderers/hooks. JavaScript jobs do not receive those Pi tool wrappers, but they do have unrestricted raw Node filesystem and network APIs.
+- **One job toolset spans both planes.** The normal Pi context and every JavaScript job receive the same `job`, `job_list`, and `job_stop` operations.
+- **There is no standalone `bash` model tool.** Every shell command uses `job({ type: "bash", ... })`; the provider routes to Herdr when validated and otherwise launches bash locally.
 
-This means step one does not try to bridge every installed Pi tool. It defines an explicit orchestration-capability registry. Extensions opt capabilities into code execution deliberately; direct work tools remain outside it.
+Step one does not bridge installed Pi tools. A provider registry admits explicit job types; raw filesystem/network access is ordinary child-process capability, not invocation of Pi's work-plane tools.
 
-### Step one: programmatic tool execution
+### Step one: JavaScript jobs
 
-Build a provider-agnostic Pi `execute` extension that runs agent-authored JavaScript and exposes approved orchestration capabilities as awaitable globals.
-
-- `execute({ mode: "sync", js })` runs the program now and returns its final value/output.
-- `execute({ mode: "async", js })` returns an execution ID immediately, continues in the background, and injects its final result into the originating Pi thread with automatic wake-up.
-- Execution lifecycle controls are code-only globals for listing, waiting on, or stopping async executions. Program output is inspected through the persisted file path using Pi's normal direct `read` tool; there is no `execution_read` code capability.
-- A reusable callable-tool registry/RPC seam lets orchestration-oriented extensions contribute functions without exposing them as separate direct tools.
-
-### Step two: Herdr-backed bash
-
-Build the reusable Herdr library and Pi bash extension. It exposes two interfaces over the same implementation:
-
-1. A direct, foreground-only Pi `bash` tool for simple work commands.
-2. Code-only `bash`, `bash_list`, `bash_read`, `bash_wait`, and `bash_stop` globals for orchestration. The code-only `bash` supports both sync and async modes.
-
-Every command still runs in a fresh pane under the current workspace's `pi-shell` tab.
-
-Host tool wrappers should be asynchronous because calls cross an RPC seam. The example workflow becomes:
+Build a provider-agnostic Pi job extension with three model-facing tools, mirrored as awaitable globals inside JavaScript jobs:
 
 ```ts
-const jobId = await bash("async", "pnpm dev");
-while (!(await bash_read(jobId)).match(/ready/)) {
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-}
-return { jobId, ready: true };
+job({
+  type: "js",
+  cmd: "return 42",
+  mode: "sync" | "async",
+  timeout?: number,
+});
+
+job_list(options?);
+job_stop({ id });
 ```
 
-The exact convenience signatures remain open, but nested host-tool calls should consistently be awaited.
+Sync JavaScript jobs return final output now. Async jobs return an ID/path immediately and inject exactly one terminal result into the originating Pi thread. Nested `job({ type: "js" })` calls are allowed and create another isolated child through parent-host RPC.
 
-A future, out-of-scope subagent capability will reuse the Herdr library: create/use a configurable `pi-sub` tab, open a pane, launch Pi there with the subagent instructions, and expose its lifecycle through code orchestration. The current task must keep Herdr primitives generic enough for that adapter but must not implement subagents.
+Program output is persisted by path. The outer agent may use Pi's direct `read`; JavaScript jobs may use `node:fs/promises`. There are no dedicated job read/wait operations.
+
+### Step two: routed bash jobs
+
+Build the reusable Herdr library and a bash job provider over the same three-operation interface. The provider checks each job's context: validated Herdr runs in a fresh `pi-shell` pane; otherwise it launches bash directly as a managed local process. The standalone Pi `bash` tool is removed from the active model toolset.
+
+```ts
+const child = await job({
+  type: "bash",
+  cmd: "pnpm dev",
+  mode: "async",
+});
+return child; // includes id and outputPath
+```
+
+The agent can inspect `outputPath` with normal direct `read`; a parent JavaScript job can inspect it with `node:fs/promises`. Waiting uses ordinary Promise/timer composition followed by filesystem reads or `job_list()`.
+
+A future, out-of-scope subagent provider will reuse the Herdr library and may add another `job.type`: create/use a configurable `pi-sub` tab, open a pane, launch Pi there with the subagent instructions, and expose its lifecycle through the same job manager. The current task must preserve that seam but not implement subagents.
 
 ## Confirmed platform facts
 
@@ -56,10 +61,10 @@ A future, out-of-scope subagent capability will reuse the Herdr library: create/
 - `pane.run` is only an atomic text-plus-Enter injection; it does not return command output or an exit code ([source](https://github.com/ogulcancelik/herdr/blob/299dd4163a96381ec2d8e5bde13d7ba6d6432373/src/cli/pane.rs#L929-L942)).
 - `pane.wait_for_output` polls terminal text for a marker and returns the matching read, but it is not process completion tracking ([source](https://github.com/ogulcancelik/herdr/blob/299dd4163a96381ec2d8e5bde13d7ba6d6432373/src/api/wait.rs#L20-L126)).
 - Herdr emits `pane.exited`, but that public event does not carry the process exit code ([source](https://github.com/ogulcancelik/herdr/blob/299dd4163a96381ec2d8e5bde13d7ba6d6432373/src/api/schema/events.rs#L493-L501)).
-- Pi's `createBashTool` accepts a `BashOperations` adapter with streamed `onData`, abort, timeout, cwd, environment, and final exit code. Reusing it preserves Pi's bash schema, truncation, error behavior, and renderer contract instead of reimplementing those details.
-- Pi's built-in bash schema has only `command` and optional `timeout`; it has no first-class async/background option. It always waits for the spawned shell to exit while streaming stdout/stderr. Shell syntax such as `cmd &` may let the shell exit while a descendant continues, but Pi provides no job ID, status/read/stop lifecycle, and output arriving after the tool settles is no longer a reliable managed stream.
-- This dotfiles repo already has a `hashline-tools` extension that overrides `bash`, so registration order and renderer ownership must be handled deliberately rather than assumed.
-- Pi 0.80.3 does **not** publicly expose registered tool executors. `pi.getAllTools()` returns metadata only; the internal session has full definitions, but `ExtensionAPI` has no `getToolDefinition()` or invoke method. Step one therefore cannot transparently call every installed Pi tool through supported interfaces without an explicit callable-tool registry, recreated adapters, or a Pi change/private bridge.
+- Pi's built-in bash backend supports streaming, abort, timeout, cwd, environment, and process-tree termination, but it selects the configured shell. The unified `type: "bash"` provider needs similar lifecycle behavior while explicitly spawning bash instead.
+- Pi's built-in bash tool is foreground-only and has no managed job IDs or async lifecycle.
+- This repo's `hashline-tools` extension overrides `bash`; the job adapter must remove the active `bash` name after extension/session reload without disturbing other active tools.
+- Pi 0.80.3 does **not** publicly expose registered tool executors. `pi.getAllTools()` returns metadata only; the internal session has full definitions, but `ExtensionAPI` has no invoke method. The design therefore exposes only explicit job providers and never attempts a generic bridge to installed Pi tools.
 - Existing provider-agnostic PTC extensions use the same broad architecture proposed here: an isolated subprocess, generated async wrappers, and host RPC. `pi-ptc-next` recreates built-in executors and can invoke only custom executors it captured itself, confirming the public Pi limitation.
 - SuperJSON 2.2.5 supports circular references even though its README does not advertise them. Its walker tracks object identity, short-circuits previously seen values, and replaces an active cycle edge with `null` ([walker](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/plainer.ts#L188-L235)); serialization emits referential-equality metadata ([serialize](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/index.ts#L33-L58)); deserialization restores repeated and root/self references ([restore](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/plainer.ts#L81-L114)). The repository includes an explicit cyclic parent/child test ([test](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/index.test.ts#L330-L348)).
 
@@ -82,18 +87,18 @@ Also do not copy `node:vm` as a security claim. The reference explicitly notes t
 
 ```text
 .pi/agent/extensions/
-├── tool-program-runtime/            # reusable JS execution + host-tool RPC
+├── job-runtime/                     # unified manager + JS child runtime/RPC
 │   ├── src/
-│   │   ├── executor.ts
-│   │   ├── callable-tools.ts
+│   │   ├── manager.ts
+│   │   ├── providers.ts
+│   │   ├── js-provider.ts
 │   │   ├── rpc.ts
-│   │   ├── jobs.ts
+│   │   ├── artifacts.ts
 │   │   └── types.ts
 │   └── test/
-├── pi-execute/                      # step-one Pi adapter
+├── pi-jobs/                         # three Pi tools + matching JS wrappers
 │   ├── src/
 │   │   ├── index.ts
-│   │   ├── artifacts.ts             # source, event log, result persistence
 │   │   ├── completion-messages.ts
 │   │   └── rendering.ts
 │   └── test/
@@ -106,13 +111,13 @@ Also do not copy `node:vm` as a security claim. The reference explicitly notes t
 │   │   ├── runner.ts
 │   │   └── index.ts
 │   └── test/
-└── herdr-pi-shell/                  # step-two Pi + callable-tool adapter
+└── bash-jobs/                        # routed local/Herdr `bash` provider
     ├── src/
     │   ├── index.ts
-    │   ├── bash-operations.ts
-    │   ├── bash-job-tools.ts
-    │   ├── callable-bash.ts
-    │   └── completion-messages.ts
+    │   ├── provider.ts
+    │   ├── local-backend.ts
+    │   ├── herdr-backend.ts
+    │   └── runner.ts
     └── test/
 ```
 
@@ -122,98 +127,127 @@ These are local dotfiles workspace packages only. Mark them private, add no npm 
 
 ## Module design
 
-### 1. Programmatic execution module
+### 1. Unified job module
 
-The external interface is one deep `execute` module plus a small capability-registration seam.
+The external interface is one deep `JobManager`, a small provider-registration seam, and the same three operations in both the normal Pi context and every JavaScript job.
 
-#### Pi tool interface
+#### Shared tool interface
 
 ```ts
-execute({
-  mode: "sync" | "async",  // default sync
-  js: string,
-  timeout?: number,              // seconds; no default
-})
+job({
+  type: "js" | "bash",
+  cmd: string,
+  mode?: "sync" | "async",  // default sync
+  timeout?: number,           // seconds; no default
+});
+
+job_list({
+  type?: "js" | "bash",
+  include?: "running" | "non-running" | "all",
+  cursor?: string,
+});
+
+job_stop({ id: string });
 ```
 
-A sync execution persists the complete rendered return value, then returns a bounded head-and-tail projection plus its full output path. An async execution returns an execution ID and expected output path immediately; completion is injected exactly once into its originating Pi thread with the same bounded projection and path.
+The direct Pi tools use this object schema. The JavaScript runtime receives awaitable `job`, `job_list`, and `job_stop` globals with the same object arguments and normalized results.
 
-Like standard Pi bash, omission of `timeout` means no deadline. A positive explicit timeout is measured in seconds. Sync execution still obeys the Pi tool-call abort signal; async execution is stopped explicitly through `execution_stop()` or session lifecycle teardown.
+`job` has no `cwd` option. Root jobs capture the current Pi invocation cwd; nested jobs inherit their parent's cwd. Directory changes remain explicit in bash `cmd` (for example `cd ... && ...`) rather than becoming hidden job-manager state.
 
-Step one has no configuration file. The artifact root, transcript limits, 5-second stop grace, lack of a default timeout, and lack of a concurrency limit are fixed v1 behavior. Keep these values centralized as named constants so a later configuration seam does not leak through the runtime internals.
+A sync job persists complete output and returns a bounded head/tail projection plus its path. An async job returns ID/type/status/artifact paths immediately and injects exactly one terminal notification later. Omission of `timeout` means no deadline.
 
-Like `pi-dynamic-workflows`, both modes go through one `ExecutionManager`: `start()` returns an ID and detached promise; `runSync()` creates the same managed run but awaits it. The manager owns status transitions, output, final value, error, abort controller, session identity, and completion events.
+All ordinary terminal outcomes resolve with a discriminated record: `completed`, `failed`, `timed_out`, or `stopped`. This includes thrown JavaScript and nonzero bash. Only invalid requests, unavailable/corrupt providers, launch failures, and transport/integrity failures reject/throw.
 
-Keep the live `ExecutionManager` in a process-global service keyed with `Symbol.for(...)`, rather than inside one reloadable extension instance. A replacement `pi-execute` adapter reattaches its delivery and rendering hooks after `/reload`; pending completion events remain queued in the service until attachment. This mirrors standard Pi bash, which is not aborted by `/reload`.
+Step one registers only the `js` provider. Step two always registers `bash`; its backend router chooses validated Herdr or managed local bash before launch.
 
-Execution controls are injected globals rather than additional direct Pi tools:
+Step one has no configuration file. The artifact root, transcript limits, 5-second JavaScript stop grace, lack of a default timeout, and lack of a concurrency limit are fixed v1 behavior and centralized as named constants.
 
-- `execution_list()`: by default, return metadata for every currently running execution plus only the total number of non-running executions belonging to the current session. An explicit non-running query returns current-session terminal entries (completed, failed, stopped, timed out, interrupted, and lifecycle-terminated) with artifact/output paths; historical sessions remain filesystem artifacts rather than implicit list results.
-- `execution_wait(id, { timeout? })`: wait only for terminal completion and return status, timing, artifact directory, and `output.yaml` path. The optional timeout is in seconds, has no default, and times out only the wait—not the target execution.
-- `execution_stop(id)`: cancel in-flight nested host calls, send `SIGTERM` to the owned child process group, escalate to `SIGKILL` after 5 seconds if still alive, await finalization, and return terminal metadata plus the output path. Stopping an already terminal execution is idempotent.
+#### Manager and lifecycle controls
 
-There is deliberately no `execution_read()` capability. The agent receives the full output filename from `execute`, completion delivery, list, or wait metadata and reads it using Pi's normal direct `read` tool. This keeps file inspection in the direct-work plane.
+Both sync and async paths go through one process-global `JobManager`, keyed with `Symbol.for(...)` so `/reload` can attach a replacement Pi adapter without losing live children or completion events. The manager owns IDs, provider type, status transitions, parent job ID, ancestry, timestamps, session identity, output/artifact paths, terminal metadata, and exactly-once delivery state.
 
-`execution_wait` rejects waiting on the current execution with `ERR_EXECUTION_WAIT_DEADLOCK`. Do not add arbitrary event predicates initially; revisit only if real orchestration programs repeatedly need them.
+`job_list()` defaults to every running job plus only the current session's total non-running count. Explicit `non-running` returns the newest 50 matching current-session terminal records and an opaque `nextCursor`; later pages pass that cursor. `all` returns all running jobs plus the same paginated terminal page. Type filtering applies before counts/pagination. Historical sessions remain filesystem artifacts.
+
+`job_stop({ id })` dispatches to the owning provider, waits for terminal artifact finalization, and returns metadata/path. Repeated stops are idempotent. The JavaScript provider aborts nested host calls, sends `SIGTERM` to its process group, and escalates to `SIGKILL` after 5 seconds. Bash uses its Herdr pane-specific stop implementation.
+
+Nested callers must inspect `status` explicitly. A failed child record does not throw into or automatically fail its parent; parent failure/cascade occurs only when the parent program itself throws or the parent is timed out/stopped.
+
+There are deliberately no job read or wait operations. Output paths are consumed with normal Pi `read` in the outer plane or raw Node filesystem APIs inside JavaScript. Waiting is ordinary composition:
+
+```js
+const fs = await import("node:fs/promises");
+await new Promise((resolve) => setTimeout(resolve, 5000));
+const jobs = await job_list({ include: "running" });
+const output = await fs.readFile(child.outputPath, "utf8");
+return { jobs, output };
+```
 
 #### Minimal TUI renderer
 
-Use a custom renderer, but keep v1 deliberately tiny. Render only mode, execution ID, status, and elapsed/final duration. While a synchronous execution is running, issue throttled partial updates only when status or displayed duration changes. Do not render source, output previews, errors, or artifact paths in either collapsed or expanded TUI state yet.
+Use a custom renderer, but keep v1 deliberately tiny. For `job`, render only type/mode, job ID, status, and elapsed/final duration. While a synchronous job runs, issue throttled partial updates only when status or displayed duration changes. Do not render source, output, errors, or paths in either collapsed or expanded state yet. `job_list` and `job_stop` receive equally compact status-only rendering.
 
-This is presentation-only: the model-facing final tool content and async completion still contain the bounded output/diagnostic projection and `output.yaml` path. Full source and output remain in artifacts. Iterate on richer TUI presentation only after observing real usage.
+This is presentation-only: model-facing results and async completion still contain bounded output/diagnostics and `output.yaml` paths.
 
-#### Callable-tool seam
+#### Job-provider seam
 
 ```ts
-type CallableTool = {
-  name: string;
-  description: string;
-  inputSchema: TSchema;
-  invoke(input: unknown, context: NestedCallContext): Promise<unknown>;
-};
+type JobType = "js" | "bash";
 
-interface CallableToolRegistry {
-  register(tool: CallableTool): Disposable;
-  list(): CallableToolMetadata[];
-  invoke(name: string, input: unknown, context: NestedCallContext): Promise<unknown>;
+interface JobProvider {
+  readonly type: JobType;
+  start(input: JobStartInput, context: JobContext): Promise<ProviderJob>;
+  stop(job: JobRecord, context: JobContext): Promise<ProviderTerminalResult>;
+  recover?(job: PersistedJob, context: JobContext): Promise<ProviderRecovery>;
+}
+
+interface JobProviderRegistry {
+  register(provider: JobProvider): Disposable;
+  get(type: JobType): JobProvider | undefined;
 }
 ```
 
-The JavaScript runtime receives generated async wrappers from this registry and never imports extension implementations directly. Production invokes capabilities over RPC; tests use in-memory callable tools.
+The manager validates one shared schema and delegates type-specific launch/stop/recovery. Tests use in-memory providers. The production JavaScript provider creates a restricted child; the Herdr extension later contributes the bash provider.
 
-The registry tracks caller identity, parent execution ID, nested call ID, cancellation, timeout, and whether a capability is allowed from code. It does not impose a global execution concurrency limit; individual capability providers may still enforce limits required by their own backends. Recursive creation of another `execute` run is blocked by default, while `execution_list/wait/stop` may control existing runs.
+Every JavaScript child receives only `job`, `job_list`, and `job_stop` over typed RPC. Nested `job({ type: "js" })` and mixed nested bash jobs are allowed with no imposed depth or concurrency limit. Each child records `parentJobId` and ancestry so diagnostics and future policy can reason about the tree.
 
-Generate plain named globals (`bash`, `bash_read`, `subagent`, etc.) from the explicit orchestration registry rather than exposing a generic bridge to all Pi tools. A generic internal dispatcher may back the wrappers, but `read`, `write`, `edit`, `vent`, and other work-plane tools are deliberately absent.
-
-Planning and review are orchestration programs composed from primitives such as subagent execution, bash/process control, waits, branching, loops, and aggregation. They are not privileged `plan()` or `review()` globals in the runtime.
+There is no generic bridge to Pi tools. `read`, `write`, `edit`, `vent`, and their hooks/hashline semantics remain absent inside JavaScript. Planning code may instead use unrestricted Node filesystem/network APIs directly.
 
 #### Runtime isolation
 
-Run each `execute` invocation in its own Node child process. Start it with Node's permission model enabled and grant only read access to the fixed runtime bootstrap; do not grant filesystem writes, workspace reads, network access, subprocesses, workers, native addons, FFI, WASI, or inspector access.
+Run each `type: "js"` job in its own Node child process with Node's permission model enabled. Grant unrestricted filesystem reads/writes and unrestricted network access (`--allow-fs-read=*`, `--allow-fs-write=*`, and all-network permission). Do not grant child-process, worker, native-addon, FFI, WASI, or inspector permissions.
 
-Inside that permission-constrained child, create a fresh `node:vm` context containing generated async capability wrappers, standard language globals, `Promise`, and standard timers such as `setTimeout`/`clearTimeout`. Do not add custom convenience helpers initially.
+Inside the child, create a fresh `node:vm` context containing the three RPC wrappers, standard language globals, Promise/timers, and Node web globals such as `fetch`, `Headers`, `Request`, and `Response`. Configure `importModuleDynamically` so code can use unrestricted dynamic ESM imports resolved from its inherited cwd, including:
 
-Do not provide a working console or output helper. Bind `console` to a hostile proxy whose property access or reflective use throws a distinct `ConsoleUnavailableError` with code `ERR_EXECUTE_CONSOLE_UNAVAILABLE`. Its message tells the agent that console output is unavailable and that programs output data by explicitly returning it, for example `return value`.
+```js
+const fs = await import("node:fs/promises");
+const response = await fetch("https://example.com/data.json");
+```
 
-Spawn with `stdio: ["ignore", "ignore", "ignore", "ipc"]`. Child stdin, stdout, and stderr are neither inherited nor piped into the Pi process. Expected results, normalized errors, lifecycle events, and capability RPC use typed IPC only. Fatal failures that cannot send IPC are represented by the child's exit code or signal.
+Static imports are unavailable because `cmd` is an async function body; tool instructions use dynamic `import()`. `process` and `require` are not injected as convenience globals, though unrestricted module imports may obtain Node modules. Importing dangerous modules is not itself blocked, but operations such as `child_process.spawn()`, workers, or native-addon loading must fail under the outer Node permission boundary; shell work goes through `job({ type: "bash" })`.
 
-The parent Pi extension owns the RPC dispatcher and `ExecutionManager`. It validates nested calls, invokes registered host capabilities, records lifecycle/debug events, persists complete output, propagates cancellation, and kills the child on timeout, stop, IPC failure, or session teardown policy. A CPU-bound infinite loop can freeze only its child, not Pi.
+Do not provide a working console or output helper. Bind `console` to a hostile proxy whose property access or reflective use throws `ConsoleUnavailableError` with code `ERR_JOB_CONSOLE_UNAVAILABLE`, explaining that programs output data by explicitly returning it.
 
-`node:vm` is therefore an ergonomics/namespace layer, not the security boundary. If code escapes the VM, it still lands in a separate Node process constrained by `--permission`, with ignored stdio. Tests must prove denied filesystem, network, child-process, worker, and addon access.
+Spawn with `stdio: ["ignore", "ignore", "ignore", "ipc"]`. Child stdin/stdout/stderr are neither inherited nor piped into Pi. Results, errors, lifecycle events, and nested job RPC use typed IPC only.
 
-Intermediate nested-tool results remain inside the child. Only the explicitly returned final value, normalized errors, bounded lifecycle telemetry, and artifact paths enter the Pi transcript.
+The parent `JobManager` validates nested calls, delegates providers, records events, persists output, propagates cancellation, and kills the JavaScript child on timeout, stop, IPC failure, or session teardown. A CPU-bound infinite loop can freeze only its child.
 
-Validate syntax before spawning, wrap the accepted body as an async program so top-level `await` and `return` work, then await its promise. No `meta` header, workflow DSL, phase machinery, hooks, or built-in planning/review framework is required.
+`node:vm` is an ergonomics/namespace layer, not a data-security boundary. If code escapes the VM, it remains in a separate process but intentionally has full user-level filesystem/network access. Tests must prove those capabilities work while subprocesses, workers, addons, FFI/WASI, and inspector remain denied.
+
+A nested synchronous job returns only normalized metadata, the bounded head/tail textual projection, and `outputPath`; it never injects the complete typed child value into its JavaScript caller. The parent may return that projection/path if it wants to surface the child. Validate JS syntax before spawning and wrap the body as an async program so top-level `await` and `return` work.
 
 #### Output capture and transcript truncation
 
-A program emits output only through its final return value. Use pinned SuperJSON 2.2.5, bundled into the fixed child bootstrap, to serialize supported values—including circular/repeated references, `undefined`, `BigInt`, `Date`, `RegExp`, `Set`, `Map`, `Error`, URL, and supported typed arrays. Encode the complete `{ json, meta? }` envelope as deterministic YAML in `output.yaml` using a pinned YAML emitter. Configure multiline strings as block scalars and wrap long scalar output so the normal line-oriented `read` tool can paginate it; parsing the YAML and passing the envelope to `SuperJSON.deserialize()` must reconstruct the value. Reject unsupported functions, unregistered symbols/classes, or serialization failures with `ERR_EXECUTE_RESULT_NOT_SERIALIZABLE`; never silently omit them. A normalized execution failure is likewise persisted as a full SuperJSON envelope while `result.json` records failure status.
+A JavaScript job emits output only through its final return value. Use pinned SuperJSON 2.2.5, bundled into the fixed child bootstrap, to serialize supported values—including circular/repeated references, `undefined`, `BigInt`, `Date`, `RegExp`, `Set`, `Map`, `Error`, URL, and supported typed arrays. Encode the complete `{ json, meta? }` envelope as deterministic YAML in `output.yaml` using a pinned YAML emitter. Configure multiline strings as block scalars and wrap long scalar output so the normal line-oriented `read` tool can paginate it; parsing the YAML and passing the envelope to `SuperJSON.deserialize()` must reconstruct the value. Reject unsupported functions, unregistered symbols/classes, or serialization failures with `ERR_JOB_RESULT_NOT_SERIALIZABLE`; never silently omit them. A normalized failure is likewise persisted as a full SuperJSON envelope while `result.json` records status.
 
 Never place unbounded output in model context. Match Pi's existing tool-output limits: at most 2,000 lines and 50 KiB of UTF-8 text, with either limit independently triggering middle truncation. Reserve space for a literal `[truncated]` marker, then split the remaining line and byte budgets approximately evenly between a prefix and suffix. Preserve UTF-8 boundaries; an individual oversized line may be cut so both the beginning and end remain visible. Report omitted line/byte counts as result metadata outside the projection.
 
 Always show the absolute `output.yaml` path. The file contains the complete YAML-encoded SuperJSON envelope, never the transcript-truncated projection. The agent uses its normal direct `read` tool when it needs the full output. Synchronous partial rendering shows status/duration only because there is no console stream; the bounded output appears when execution completes.
 
-Async startup returns the execution ID, artifact directory, and expected `output.yaml` path. Individual lifecycle events do not wake the agent. Completion delivery includes status, duration, bounded head/tail output, truncation statistics, and the full output path.
+The same bounded contract applies when a synchronous JS job is called from another JS job: return the YAML head/tail projection with metadata and `output.yaml`, not the full SuperJSON-deserialized value.
+
+Bash output uses the same 2,000-line/50-KiB middle projection for sync results and root completion messages. Decode the preview as UTF-8 with replacement for invalid sequences; `output.log` retains the complete original combined bytes.
+
+Async JS startup returns job ID, artifact directory, and expected `output.yaml` path. Lifecycle events do not wake for nested jobs; async roots receive bounded completion delivery.
 
 #### Failure diagnostics
 
@@ -223,38 +257,45 @@ Compile the wrapper with the persisted absolute `source.js` filename and compens
 
 The permanent `output.yaml` and `result.json` contain full diagnostics. The Pi tool result and async completion use the same 2,000-line/50-KiB middle-truncation projection as successful output.
 
-#### Execution artifacts and debugging
+JavaScript throws are normalized into `status: "failed"` records rather than rethrown through `job()`. Their full diagnostics remain in artifacts and bounded projection.
 
-Persist the exact JavaScript source before spawning so every sync or async run can be diagnosed later. Each execution artifact directory should contain:
+#### Job artifacts and debugging
 
-- `source.js`: exact model-supplied snippet;
-- `manifest.json`: execution/session IDs, mode, cwd, timestamps, runtime version, status, limits, and registered capability versions;
-- `events.jsonl`: append-only state-transition, nested-call, runtime diagnostic, and cancellation events;
-- `output.yaml`: complete YAML encoding of the SuperJSON envelope for the returned value or normalized failure;
-- `result.json`: atomic status, type/error metadata, output statistics, and `output.yaml` reference;
-- optionally `wrapped.js`: generated async wrapper for debugging runtime transformation issues.
+Create the artifact directory and persist the exact input before starting any provider. Every job directory contains:
 
-Execute results and lifecycle metadata expose the execution ID, artifact directory, and full output path. Artifact writes are parent-owned; the sandbox child receives source over IPC and has no workspace/artifact filesystem permission.
+- `manifest.json`: job/session/parent IDs, type, mode, cwd, timestamps, runtime/provider versions, status, and limits;
+- `events.jsonl`: append-only state, nested-call, provider diagnostic, cancellation, and recovery events;
+- `result.json`: atomic terminal status, type-specific exit/error metadata, output statistics, and output reference.
 
-Store artifacts under Pi's global directory, not the system temp directory:
+JavaScript jobs additionally contain:
+
+- `source.js`: exact model-supplied `cmd`;
+- `wrapped.js`: generated async wrapper used for stack mapping;
+- `output.yaml`: complete YAML encoding of the SuperJSON return/failure envelope.
+
+Bash jobs additionally contain:
+
+- `request.json`: runner request including the exact opaque command and launch metadata;
+- `output.log`: complete append-only combined stdout/stderr bytes.
+
+Results expose job/type/artifact/output paths. Parent/providers are authoritative writers by convention, not filesystem isolation: JS has unrestricted access and can inspect or modify artifacts. The manager keeps authoritative state in memory while alive and atomically rewrites/finalizes common records after child termination.
+
+Store every provider's artifacts under Pi's global directory:
 
 ```text
 ~/.pi/pi-execute/
 └── <cwd-slug>/
     └── <session-timestamp>-<session-id>/
-        └── <execution-timestamp>-<execution-id>/
-            ├── source.js
+        └── <job-timestamp>-<job-id>/
             ├── manifest.json
             ├── events.jsonl
-            ├── output.yaml
-            └── result.json
+            ├── result.json
+            └── <type-specific files>
 ```
 
-Current Pi session headers keep `id`, `timestamp`, and `cwd` as separate fields; the ID itself is a UUID and contains neither a readable timestamp nor cwd. Therefore include a path-safe cwd slug and prefix the session timestamp. If a future session ID already contains a readable normalized timestamp, do not duplicate that session timestamp prefix. Execution directories always pair their start timestamp with execution ID unless the generated execution ID itself adopts a readable timestamp-bearing format.
+Current Pi session headers keep ID, timestamp, and cwd separately, so include a path-safe cwd slug and prefix a normalized timestamp. If a future ID already contains a readable normalized timestamp, do not duplicate it. Use Pi's existing cwd-slug convention where practical.
 
-Use Pi's existing cwd-slug convention where practical (for example `/home/toms/.dotfiles` becomes `--home-toms-.dotfiles--`). Normalize timestamps for path safety. Execute results and lifecycle metadata expose the full artifact and output paths.
-
-Execution history and artifacts have no automatic retention deadline or size-based pruning. Keep them indefinitely until the user manually deletes them. The extension may provide inspection and explicit cleanup commands later, but must never silently remove completed artifacts.
+All job history and artifacts persist indefinitely until manual deletion. Temporary transport files may be atomically replaced during execution, but the finalized artifacts above are never pruned automatically.
 
 
 ### 2. Reusable Herdr library
@@ -351,106 +392,95 @@ For each job:
 
 A sidecar is required because Herdr's pane-exit event has no exit code. Terminal output remains useful for people but is not the machine-readable source of truth.
 
-### 3. Herdr Pi extension
+### 3. Routed bash job provider
 
-#### Dual-surface bash
+The bash package always registers one `type: "bash"` provider. For each start it validates whether Pi is currently running in usable Herdr context:
 
-When Herdr discovery succeeds:
+- **Validated Herdr:** resolve/create the current workspace's `pi-shell` tab and run in a new unfocused pane.
+- **No valid Herdr context:** launch a managed local bash process directly.
 
-1. Register a direct Pi `bash` override with Pi's existing `command` plus optional `timeout` schema. Direct bash is always foreground/sync; it is the work-plane exception and should feel compatible with Pi's built-in tool.
-2. Delegate direct execution to `createBashTool(ctx.cwd, { operations })`, where `BashOperations.exec()` calls `HerdrJobHost.run()`. Preserve Pi streaming, truncation, full-output files, timeout wording, and nonzero-exit behavior.
-3. Separately register code-only orchestration capabilities with the callable-tool registry:
-   - `bash(mode, command, options?)`, where mode is `"sync" | "async"`;
-   - `bash_list()`;
-   - `bash_read(jobId, options?)`;
-   - `bash_wait(jobIds, condition?)`;
-   - `bash_stop(jobId, options?)`.
-4. Register the direct override during `session_start`, after factory-time tool registration, so it deliberately supersedes the existing hashline bash override in Herdr mode.
-5. Reuse or preserve the compact hashline direct-bash renderer if practical. Code-only calls return normalized JavaScript values and do not render individual nested calls into the main transcript.
-6. `!command`, if routed through Herdr, remains foreground/sync.
+The package removes `bash` from Pi's active model tools during every session start/reload while preserving all other active tools. It never registers a replacement named `bash`; `job({ type: "bash" })` is the only model-facing shell interface.
 
-When discovery does not succeed:
+#### Explicit bash semantics
 
-- Do not replace direct Pi bash; the currently configured implementation remains active.
-- Do not register Herdr bash capabilities with `execute`.
-- Do not intercept `user_bash`.
+`type: "bash"` always means bash, independent of the user's configured login or pane shell.
 
-#### Code-only bash lifecycle
+- The local backend resolves/spawns `bash` directly with `-c`, explicit cwd/environment, detached process group, captured output, abort, and timeout handling.
+- The Herdr pane receives only a fixed safely quoted runner launcher. The runner reads opaque `cmd` from the private request and explicitly spawns `bash -c`; the pane's configured shell never interprets the user command.
+- If `bash` cannot be resolved, fail with a stable provider error. Never substitute another shell.
 
-The orchestration globals have these semantics:
+This matters because a Herdr pane may use zsh, fish, nushell, or another shell whose syntax differs from bash.
 
-- `bash("sync", command, options?)` waits and returns `{ output, exitCode, ... }`.
-- `bash("async", command, options?)` returns a job ID promptly while its pane keeps running.
-- `bash_list()` lists running and recently completed jobs.
-- `bash_read(id)` reads running or retained completed output.
-- `bash_wait(...)` coordinates exit/output/readiness conditions; exact multi-job semantics remain to grill.
-- `bash_stop(id)` interrupts, then force-closes after a grace period.
+#### Managed bash lifecycle
 
-These functions are documented in the `execute` tool's generated JavaScript interface, not added as direct Pi tools. Async bash jobs remain visible to later `execute` programs and survive unrelated agent work and extension reload.
+- Sync bash waits and returns status/exit metadata, `outputPath`, and only the bounded head/tail output projection. The full bytes never cross job RPC or model context.
+- A nonzero exit resolves normally with `status: "failed"`, `exitCode`, bounded output, and path. It is not a JavaScript rejection; callers branch on status. Validation, launch, transport, and provider-integrity failures still throw.
+- Async bash promptly returns ID, status/result paths, and live append-only `output.log`.
+- `job_list({ type: "bash" })` returns running or explicitly requested terminal metadata and paths.
+- `job_stop` closes only the owned Herdr pane or terminates only the owned local process group.
 
-#### Automatic async completion messages
+There are no job read or wait operations. Tool descriptions show outer callers using Pi `read` and JavaScript callers using `node:fs/promises` on `outputPath`; a parent may poll and branch on a live async bash output file.
 
-Each async job records its originating Pi session path/ID and tool call ID. A watcher follows the job independently of whether the agent calls any job tool. On completion:
+Herdr validation/fallback happens before launch. Once a Herdr job creates a pane or starts its runner, any failure is reported and the command is never retried locally.
 
-1. Flush the final output and exit sidecar.
-2. Build a bounded completion message containing job ID, command summary, cwd, duration, exit code/signal, and the tail of combined output. Include the retained-log path when truncated.
-3. Persist/inject it as a custom Pi message associated with the originating thread, with a unique delivery ID so reload/recovery cannot inject it twice.
-4. If the originating agent is currently active, queue it with `deliverAs: "followUp"` so it does not interrupt an in-flight tool batch. If idle, inject with `triggerTurn: true` so the model receives and can act on the result immediately.
-5. Close the completed job pane idempotently and retain job metadata/output for the configured history window so later code can call `bash_list()` and `bash_read()`.
+Async bash jobs remain visible to outer or nested `job_list`/`job_stop`, survive unrelated work/reload according to final ownership policy, and persist their output/status without implying notification.
 
-If the user switches Pi sessions before completion, do not contaminate the newly active thread. Retain the undelivered completion against its origin session and inject it when that session is active again; surface a UI notification separately if useful.
+#### Root-only async completion messages
 
-#### Configuration
+Only async root jobs—jobs started directly from the normal Pi context with no `parentJobId`—receive automatic completion delivery. Nested jobs never inject messages or wake the agent, whether they complete, fail, time out, are stopped explicitly, or are cascade-stopped.
 
-Minimum configuration:
+A watcher follows every job for persistence and cleanup, but delivery is gated on root status. For an async root:
 
-```ts
-type HerdrPiShellConfig = {
-  tabLabel: string;                 // default "pi-shell"
-  splitDirection: "right" | "down";
-  splitRatio?: number;
-  asyncRetentionMs: number;
-  stopGraceMs: number;
-};
-```
+1. Flush final output and provider result sidecars.
+2. Build the bounded type-specific completion projection plus full output path.
+3. Persist/inject it with a unique delivery ID so reload/recovery cannot inject it twice.
+4. Queue as `followUp` while the origin agent is active or use `triggerTurn: true` when idle.
+5. Finalize provider resources idempotently.
 
-Recommended precedence:
+A parent JavaScript flow surfaces child work only by explicitly incorporating child results, metadata, or output paths into its own returned value. If it does not, child completion remains visible only in artifacts and explicit `job_list` queries.
 
-1. Explicit options passed to the extension factory (enables reuse/composition).
-2. Trusted project config.
-3. User config.
-4. Environment variables for simple overrides.
-5. Defaults.
+If session replacement begins before a root completes, stop/finalize it as `session_replaced` without delivery; never retain a completion for injection into another or later-resumed session. `/reload` is not replacement and preserves delivery state.
 
-The exact config file names and whether project config is needed in v1 remain grilling decisions.
+#### Fixed v1 bash/Herdr policy
+
+There is no configuration file in v1. Use fixed behavior:
+
+- target tab label `pi-shell`;
+- split right at ratio `0.5`, without focus;
+- resolve `bash` from the Pi process `PATH`;
+- 5-second stop grace for local process termination and Herdr pane cleanup;
+- retain all job history/artifacts until manual deletion.
+
+Centralize these values as constants so later evidence can justify a configuration seam without leaking options throughout the providers.
 
 ## Error and lifecycle policy
 
-- **Not in Herdr at startup:** preserve existing Pi bash with no warnings.
-- **Herdr environment is present but ping/current-pane validation fails:** show one startup warning and preserve existing bash; do not half-enable Herdr tools.
-- **Herdr fails after a job has started:** return an explicit transport/lifecycle error. Never silently rerun the command locally, because commands may have side effects.
+- **Not in Herdr:** route bash jobs locally without warning.
+- **Herdr markers present but validation fails:** warn once and route new bash jobs locally.
+- **Herdr fails after a job has started:** report an explicit error and never rerun locally.
 - **Target tab missing:** create `pi-shell` without focusing it and reserve its root pane as the permanent split anchor.
 - **Root pane:** never execute a user/agent command in it; every sync and async invocation gets a new pane.
 - **Duplicate target labels:** error with the matching tab IDs and require disambiguation/rename.
 - **Pane creation succeeds but command launch fails:** close the pane and clean job files.
 - **Abort/timeout:** close only the owned job pane, never the root or Pi pane.
-- **JavaScript `/reload`:** keep execution children and their process-global `ExecutionManager` alive; the replacement extension adapter reattaches to it and drains pending completion events exactly once.
-- **JavaScript `/new`, `/resume`, `/fork`:** terminate executions owned by the replaced session, finalize them as `session_replaced` with the specific reason, and do not transfer them to the new session. This mirrors standard Pi bash.
-- **Herdr `/reload`, `/new`, `/resume`, `/fork`:** rebuild in-memory handles from job sidecars and live pane labels; final async-job ownership policy remains a step-two decision.
-- **Completion delivery:** every async terminal outcome—completed, failed, timed out, or explicitly stopped—injects exactly one notification into the originating available session, never whichever session happens to be active later. Session replacement and Pi quit finalize artifacts without attempting delivery to the disappearing session.
-- **Completion wake-up:** use follow-up delivery during active work and automatically trigger a model turn when the originating session is idle.
-- **Pi quit:** terminate every running JavaScript execution child, finalize its artifact as `host_exited`, and do not attempt to resume it. On the next startup, any manifest still marked running without a live owner is finalized as `host_crashed`. Herdr-owned async process policy remains a separate step-two decision.
-- **JavaScript stop:** abort nested capability calls first, terminate only the target execution's process group with `SIGTERM`, escalate to `SIGKILL` after 5 seconds, and atomically finalize status/artifacts after exit. No cooperative cancellation global is exposed inside the VM.
-- **Concurrent tool calls:** each receives a separate pane and job directory; target resolution/split is serialized, execution is not.
+- **`/reload`:** all providers keep live jobs through the process-global `JobManager`; the replacement adapter/providers reattach to child IPC, local process handles, or Herdr sidecars/panes and preserve exactly-once root delivery.
+- **`/new`, `/resume`, `/fork`:** stop every job owned by the replaced session across JS, local bash, and Herdr bash; finalize as `session_replaced` and do not transfer ownership.
+- **Completion delivery:** async roots notify exactly once for every terminal outcome when the origin remains available. Nested jobs never notify or wake; cascade-stopped descendants are not summarized automatically.
+- **Completion wake-up:** root completion uses follow-up delivery during active work and triggers a model turn when the origin session is idle.
+- **Pi quit:** stop every job across all providers and finalize as `host_exited`. On the next startup, reclaim any abandoned owned process/pane and finalize stale running manifests as `host_crashed`; never resume them.
+- **Parent success:** async descendants survive independently as session-owned jobs; retain parent/ancestry metadata for inspection.
+- **Parent failure/timeout/stop:** atomically close the lineage to new child starts, abort in-flight nested calls, and cascade-stop every active descendant across providers before finalizing the parent's terminal record. Stopping a child does not affect its parent or siblings; an async child failure does not cascade upward.
+- **JavaScript process stop:** send `SIGTERM` to the owned process group, escalate to `SIGKILL` after 5 seconds, and atomically finalize.
+- **Concurrent jobs:** the manager imposes no global concurrency/depth limit. Herdr target resolution/split is serialized, but execution is not.
 
 ## Platform scope
 
-Version 1 supports Linux only. Detect unsupported platforms before registering `execute` or replacing bash, and report a clear startup diagnostic rather than attempting degraded process isolation. Do not claim macOS or Windows support until permission-model, process-group termination, artifact, socket, and lifecycle tests run there.
+Version 1 supports Linux only. Detect unsupported platforms before registering the job toolset or deactivating standalone bash, and report a clear startup diagnostic rather than attempting degraded isolation. Do not claim macOS or Windows support until permission-model, process-group, artifact, socket, and lifecycle tests run there.
 
 ## Security and correctness
 
 - Never construct a shell command by interpolating untrusted paths. Pass runner metadata through a JSON request file and quote only the fixed runner invocation with a tested platform-aware argument encoder.
-- Keep the user's command as opaque text and execute it once through the configured shell.
+- Keep `cmd` opaque. Local and Herdr runners pass it once to an explicitly spawned `bash -c`; only the fixed Herdr runner launcher is quoted for the pane's configured shell.
 - Resolve cwd from each Pi tool invocation (`ctx.cwd`), not from extension-load-time `process.cwd()`.
 - Restrict cleanup to extension-owned pane labels and job directories.
 - Put bounds on captured output, retained job logs, wait durations, and stop grace periods.
@@ -459,21 +489,24 @@ Version 1 supports Linux only. Detect unsupported platforms before registering `
 
 ## Test plan
 
-### Programmatic execution tests
+### Unified job-runtime tests
 
-- Generated wrappers invoke registered capabilities with validated inputs and normalized outputs.
-- Sync programs return final values; async programs return IDs and later inject exactly one completion.
-- Nested calls propagate cancellation, timeout, and caller identity; starting multiple top-level executions is not rejected or queued by an extension-level concurrency cap.
+- Outer Pi tools and inner RPC wrappers use the same schemas and normalized results for `job`, `job_list`, and `job_stop`.
+- The JS provider returns final values synchronously; async mode returns IDs and later injects exactly one completion.
+- Nested JS→JS and JS→bash starts record parent/ancestry and cross the parent RPC boundary rather than spawning from the sandbox.
+- Nested calls propagate cancellation, timeout, and caller identity; no manager concurrency/depth cap rejects starts.
 - Intermediate results stay out of the Pi thread unless explicitly returned.
 - Program crashes, serialization failures, runaway loops, and sandbox exits cannot crash Pi.
-- Session reload recovers async programs and exactly-once completion state.
-- Any access to a `console` property throws `ERR_EXECUTE_CONSOLE_UNAVAILABLE` with return-value guidance; child stdio is ignored.
-- Complete SuperJSON envelopes, including circular returns and failures, are persisted as deterministic, read-paginatable `output.yaml`; transcript output is independently bounded by lines and bytes, middle-truncated, and includes the full path.
-- Exact source, manifest, lifecycle event log, diagnostics, output, and atomic result metadata remain inspectable after execution.
-- Standard Promise/timer composition works without a custom `sleep()` helper.
-- Omitting `timeout` permits a run longer than any arbitrary default; an explicit timeout and sync abort both kill the child process tree and finalize its artifact.
-- `execution_wait` returns completion metadata, leaves the target running when its own optional timeout expires, and rejects self-waits deterministically.
-- Validation, runtime, serialization, timeout, stop, IPC, and fatal-child failures produce phase-specific stable codes, full artifact diagnostics, and source-mapped user line numbers where a JavaScript stack exists.
+- Reload preserves live JS jobs and exactly-once completion state.
+- Any console property access throws `ERR_JOB_CONSOLE_UNAVAILABLE`; child stdio is ignored.
+- Complete SuperJSON envelopes persist as read-paginatable `output.yaml`; transcript output uses bounded middle truncation and includes the path.
+- Source, manifests, event logs, diagnostics, output, hierarchy, and atomic result metadata remain inspectable.
+- Promise/timer composition works without sleep or wait operations.
+- Omitted timeout permits long runs; explicit timeout and sync abort kill/finalize the JS process tree.
+- A sync JS job can delay and inspect `job_list`; no read/wait job operation exists.
+- Validation/runtime/serialization/timeout/stop/IPC/fatal failures produce stable phase codes and source-mapped diagnostics.
+- JavaScript can read/write files outside cwd, dynamically import `node:fs/promises`, and make HTTP requests with `fetch`/Node network modules.
+- The same child cannot spawn subprocesses, create workers, load native addons, use FFI/WASI, or open the inspector under the permission model.
 
 ### Herdr library tests
 
@@ -492,16 +525,18 @@ Use a fake Unix-socket server as the production adapter's test counterpart and t
 
 Use fake `ExtensionAPI`, context, and `HerdrJobHost` adapters:
 
-- Outside Herdr, direct Pi bash remains unchanged and no Herdr code capabilities are registered.
-- Inside Herdr, direct Pi bash is sync-only and the code runtime receives sync/async bash lifecycle globals.
-- Direct sync mode forwards cwd, command, environment, timeout, signal, output chunks, and exit code through `BashOperations`.
-- Code async mode returns promptly, leaves the process running, and returns a usable job ID.
-- Code can read a running job, perform unrelated orchestration, and read it again after completion.
-- Bash completion messages include bounded final output and are delivered exactly once to the originating session, including across extension reload.
-- Work-plane tools such as read/write/edit/vent are not exposed in the code runtime.
-- An idle originating agent is automatically awakened exactly once; an active agent receives completion as a follow-up.
-- `user_bash` uses Herdr only if its separately chosen foreground semantics permit it.
-- Prompt metadata clearly explains the direct-work versus code-orchestration split.
+- The standalone `bash` model tool is inactive after startup/reload; only `job({ type: "bash" })` launches shell commands.
+- Outside Herdr, sync/async bash jobs use the local backend; inside validated Herdr they use fresh panes.
+- Both backends explicitly launch `bash -c`, forward cwd/environment/timeout/cancellation, capture output, and normalize exit status.
+- Managed async bash returns ID and live output path promptly; direct `read` inspects it and `job_list` reports status.
+- Sync bash returns only bounded head/tail output plus metadata/path; `output.log` retains complete bytes.
+- `job_stop` dispatches IDs to the correct JS or bash provider.
+- Async root bash/JS completion is bounded and delivered exactly once across reload.
+- Nested jobs of either type persist terminal state but never inject completion or wake the agent.
+- JS, local bash, and Herdr bash all survive reload but stop on session replacement and Pi quit; crash recovery reclaims stale owned resources without resuming jobs.
+- Pi work-tool wrappers remain absent inside JS, while unrestricted raw Node filesystem/network APIs are available.
+- `user_bash` / `!command` is untouched and explicitly outside this change.
+- Tool descriptions clearly explain output-path/direct-read and Promise/timer waiting.
 
 ### Opt-in live integration test
 
@@ -510,62 +545,74 @@ Against a disposable Herdr workspace/tab:
 1. Run a short successful command and verify streamed output, exit code, pane disappearance, and no focus change.
 2. Run a failing command and verify stderr/nonzero propagation.
 3. Cancel a sleeping process and verify process-tree/pane cleanup.
-4. Start a dev-server fixture, wait for readiness, read logs, stop it, and verify cleanup.
+4. Start a dev-server fixture, inspect its live output path through the direct `read` tool, stop it, and verify cleanup.
 5. Run two commands concurrently and verify separate panes and results.
 
 Never run this suite against the user's normal workspace by default.
 
 ## Implementation sequence
 
-1. Resolve the step-one grilling decisions and update this document.
-2. Add the program-runtime and `pi-execute` package skeletons plus tests.
-3. Implement the callable-tool registry, sandbox RPC, and sync `execute`.
-4. Add async execution lifecycle, completion injection, cancellation, and recovery.
-5. Register execution lifecycle controls as code-only capabilities and verify that no extra direct control tools appear.
-6. Only after step one is stable, add the Herdr package skeleton.
-7. Implement typed Herdr socket transport, discovery, target-tab/root management, and pane jobs.
-8. Register Herdr bash as a direct sync Pi tool plus code-only sync/async orchestration capabilities.
-9. Resolve renderer/config compatibility and add integration tests.
-10. Manually verify reload, session switching, cancellation, disconnects, and Pi quit behavior across both execution layers.
+1. Resolve remaining unified-job grilling decisions and update this document.
+2. Add `job-runtime` and `pi-jobs` workspace packages plus tests.
+3. Implement the provider registry, process-global manager, JS sandbox RPC, and sync outer/inner `job`.
+4. Add nested JS jobs, async lifecycle, `job_list`, `job_stop`, completion injection, cancellation, and reload recovery.
+5. Verify identical schemas/results in normal Pi context and inside JS jobs.
+6. Only after JavaScript jobs are stable, add the Herdr package and routed bash provider.
+7. Implement typed Herdr transport, discovery, target-tab/root management, pane jobs, and local fallback.
+8. Register the bash provider, deactivate standalone `bash`, and test explicit `bash -c` on both backends.
+9. Resolve Herdr configuration and add integration tests; do not alter `!command`.
+10. Manually verify nesting, reload, session switching, cancellation, disconnects, and Pi quit across providers.
 
 ## Decisions to grill
 
-1. **Resolved:** programmatic JavaScript execution is step one; Herdr-backed bash integrates in step two.
-2. **Resolved:** direct work tools remain in normal Pi context; only explicit orchestration/execution/control capabilities are callable from code.
-3. **Resolved:** bash is dual-surface—direct sync for simple work, code-only sync/async plus lifecycle controls for orchestration.
-4. **Resolved:** planning and review are ordinary JavaScript compositions over smaller orchestration primitives, not first-class privileged globals.
-5. **Resolved/out of scope:** subagents will be a future Herdr capability provider using a `pi-sub` tab and Pi-in-pane execution; the current task only preserves the necessary generic Herdr seams.
-6. **Resolved:** step one ships JavaScript execution, lifecycle debugging, persisted full output, and code-only list/wait/stop controls; step two adds Herdr bash. No custom convenience helpers are added initially.
-7. **Resolved:** each execution runs in a permission-constrained Node child with an inner `node:vm`; host capabilities cross IPC and the parent can kill the child.
-8. **Resolved:** artifacts live under `~/.pi/pi-execute/<cwd-slug>/<session-time>-<session-id>/<execution-time>-<execution-id>`, with duplicate readable timestamps omitted, and persist until manually deleted.
-9. Parent/child lifecycle when async `execute` starts async bash jobs or other background work.
-10. Whether execution and bash jobs use separate IDs/control functions or a shared generic job namespace.
-11. **Resolved for step one:** `execution_wait` waits for terminal completion only, with an optional wait-only timeout and self-deadlock rejection; richer conditions are deferred.
-12. **Resolved:** missing `pi-shell` is created without focus, one root is retained, and every command gets a new pane.
-13. **Resolved:** completion wakes the originating idle agent automatically.
-14. **Partially resolved:** JavaScript executions mirror standard Pi bash—survive `/reload`, terminate on `/new`, `/resume`, `/fork`, and quit; stale manifests are finalized rather than resumed. Herdr async-job behavior remains open.
-15. Whether `!command` uses Herdr panes.
-16. **Resolved for step one:** no config file, minimal renderer, local-only unpublished workspace packages, Linux-only scope, and full normalized failure diagnostics. Herdr-specific config/rendering remains open for step two.
-17. **Resolved:** `execute` has no default timeout; an explicit positive timeout uses seconds.
-18. **Resolved:** `console` is a throwing guidance proxy, child stdio is ignored, output comes only from `return`, complete output is persisted, transcript output uses middle truncation, and no `execution_read()` capability is exposed.
-19. **Resolved:** transcript output is limited to 2,000 lines and 50 KiB, whichever is reached first, using a budgeted prefix + `[truncated]` + suffix; `output.yaml` remains complete.
-20. **Resolved:** `output.yaml` contains the complete SuperJSON envelope encoded as deterministic, read-paginatable YAML; SuperJSON supports circular references.
-21. **Resolved:** there is no extension-level concurrency limit or queue for JavaScript executions.
-22. **Resolved:** default `execution_list()` returns all running entries plus only the current session's non-running count; callers must explicitly request current-session non-running entries.
-23. **Resolved:** `execution_stop` uses `SIGTERM` followed by `SIGKILL` after a fixed 5-second grace period; cooperative VM cancellation is not exposed.
-24. **Resolved:** every async completed, failed, timed-out, or explicitly stopped execution delivers exactly one terminal notification when the originating session remains available.
-25. **Resolved:** step-one execution has no configuration file; the selected artifact, truncation, stop, timeout, and concurrency policies are fixed v1 behavior.
-26. **Resolved:** failures persist full normalized phase/code/message/cause/stack/exit diagnostics, with JavaScript locations mapped to `source.js`; transcript diagnostics use normal bounded projection.
-27. **Resolved:** v1 supports Linux only; macOS and Windows are explicitly unsupported until tested.
-28. **Resolved:** the v1 custom TUI renderer shows only mode, execution ID, status, and duration; sync partial updates contain status/duration only.
-29. **Resolved:** step one is implemented only as local workspace packages with no publication setup or public API commitment.
+1. **Resolved:** JavaScript jobs are step one; the Herdr bash provider integrates in step two.
+2. **Resolved:** normal Pi and inner JavaScript contexts receive the same `job`, `job_list`, and `job_stop`; direct work tools stay outside JavaScript.
+3. **Resolved:** standalone model `bash` is removed; `job.type = "bash"` is the only model shell API and routes to validated Herdr or managed local bash.
+4. **Resolved:** planning/review are ordinary nested job compositions, not privileged globals.
+5. **Resolved/out of scope:** a future Herdr `pi-sub` provider may add another job type; current work preserves the provider seam only.
+6. **Resolved:** v1 has only the three-operation job toolset, persisted output, and lifecycle diagnostics; no convenience read/wait/sleep helpers.
+7. **Resolved:** each JS job runs in a separate permission-constrained Node child with inner `node:vm`, parent-host RPC, unrestricted filesystem/network, and denied subprocess/worker/addon/FFI/WASI/inspector capabilities.
+8. **Resolved:** artifacts live under `~/.pi/pi-execute/<cwd-slug>/<session-time>-<session-id>/<execution-time>-<job-id>`, omit duplicate timestamps, and persist until manually deleted.
+9. **Resolved:** async descendants survive successful parent completion, but parent failure/timeout/stop cascade-stops all descendants; child termination never cascades upward or sideways.
+10. **Resolved:** JS and bash share one ID namespace and `job`/`job_list`/`job_stop` surface, with type-discriminated records.
+11. **Resolved:** there are no wait operations; use Promise/timer composition and `job_list`.
+12. **Resolved:** missing `pi-shell` is created unfocused, one root remains, and every bash job gets a new pane.
+13. **Resolved:** only async root jobs notify/wake the originating session; nested jobs stay silent unless the parent explicitly returns their information.
+14. **Resolved:** every provider survives `/reload`, stops on `/new`/`/resume`/`/fork`/Pi quit, and reclaims stale owned resources without resuming after crashes.
+15. **Resolved/out of scope:** leave Pi's existing `!command` / `user_bash` behavior untouched.
+16. **Resolved:** no config, minimal renderer, local unpublished packages, Linux-only, and full diagnostics across providers.
+17. **Resolved:** `job` has no default timeout; explicit positive timeout uses seconds.
+18. **Resolved:** console throws guidance, stdio is ignored, output comes from return, no read/wait job operations exist, and JS may use raw filesystem/network APIs.
+19. **Resolved:** transcript output is limited to 2,000 lines/50 KiB with prefix + `[truncated]` + suffix; `output.yaml` stays complete.
+20. **Resolved:** `output.yaml` is deterministic YAML containing the complete circular-safe SuperJSON envelope.
+21. **Resolved:** no manager-level concurrency or nesting-depth limit.
+22. **Resolved:** default `job_list` returns all running plus current-session non-running count; explicit terminal history is newest-first in opaque-cursor pages of 50.
+23. **Resolved:** JS `job_stop` uses `SIGTERM`, then `SIGKILL` after 5 seconds; provider stop is idempotent.
+24. **Resolved:** root async terminal results notify exactly once when the origin remains available; nested/cascade-stopped jobs never notify automatically.
+25. **Resolved:** all v1 job/provider policies are fixed with no configuration file.
+26. **Resolved:** failures persist full normalized phase/code/message/cause/stack/exit diagnostics mapped to `source.js`.
+27. **Resolved:** v1 supports Linux only.
+28. **Resolved:** minimal job TUI shows only type/mode, ID, status, and duration.
+29. **Resolved:** packages are local workspace-only with no publication setup.
+30. **Resolved:** the direct `execute` tool and separate bash/execution lifecycle functions are removed; nested jobs are allowed through the shared toolset.
+31. **Resolved:** the bash provider explicitly launches `bash -c` in both local and Herdr modes; it never executes agent commands through the user's configured pane shell.
+32. **Resolved:** there is no built-in child-job notification or cascade summary; surfacing child work is the parent JavaScript flow's responsibility.
+33. **Resolved:** bash/Herdr uses fixed `pi-shell`, right/0.5 split, PATH-resolved bash, 5-second stop grace, and manual-only artifact deletion.
+34. **Resolved:** sync bash returns bounded head/tail output plus metadata and `outputPath`; complete bytes remain only in `output.log`.
+35. **Resolved:** nested sync JavaScript returns bounded YAML head/tail plus metadata and `output.yaml`; the complete typed return value is not injected into the parent job.
+36. **Resolved:** nonzero bash exits resolve with failed status/exit code/output metadata rather than throwing; infrastructure/provider errors still throw.
+37. **Resolved:** completed/failed/timed-out/stopped are resolving terminal records for every provider; only request/provider launch/transport/integrity errors throw.
+38. **Resolved:** explicit non-running/all history uses newest-first pages of 50 with an opaque continuation cursor.
+39. **Resolved:** `job` has no cwd option; roots use Pi cwd, nested jobs inherit it, and bash directory changes are explicit in `cmd`.
+40. **Resolved:** JavaScript jobs have unrestricted filesystem read/write, unrestricted network, dynamic ESM imports, and fetch; stronger data isolation is explicitly not a goal.
 
 ## Non-goals for v1
 
 - A general terminal emulator or replacement for Herdr.
 - Exposing the entire Herdr protocol as a pass-through interface.
-- Interactive full-screen commands such as editors through the agent `bash` tool.
+- Interactive full-screen commands such as editors through `job({ type: "bash" })`.
 - Moving commands between workspaces based on cwd heuristics; the calling pane's Herdr workspace is authoritative.
 - Silently re-executing failed Herdr commands through local bash.
 - Implementing the future `pi-sub` tab, Pi subagent launch, or subagent lifecycle capabilities.
+- Changing, disabling, or rerouting Pi's `!command` / `user_bash` behavior.
 - macOS or Windows support in v1.

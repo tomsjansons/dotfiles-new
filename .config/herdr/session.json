@@ -72,10 +72,10 @@
         "is_linked_worktree": true
       },
       "public_pane_numbers": {
+        "7": 1,
         "68": 4,
-        "70": 6,
         "69": 5,
-        "7": 1
+        "70": 6
       },
       "next_public_pane_number": 7,
       "public_tab_numbers": [
@@ -162,10 +162,10 @@
       "custom_name": null,
       "identity_cwd": "/home/toms/.dotfiles",
       "public_pane_numbers": {
-        "10": 2,
-        "71": 20,
+        "9": 1,
         "28": 3,
-        "9": 1
+        "10": 2,
+        "71": 20
       },
       "next_public_pane_number": 21,
       "public_tab_numbers": [
@@ -231,7 +231,7 @@
           },
           "panes": {
             "71": {
-              "cwd": "/home/toms/.pi"
+              "cwd": "/home/toms/.dotfiles"
             }
           },
           "zoomed": false,
@@ -305,15 +305,17 @@
       "custom_name": null,
       "identity_cwd": "/home/toms/dev/lang-exp",
       "public_pane_numbers": {
-        "46": 2,
-        "45": 1
+        "72": 3,
+        "45": 1,
+        "46": 2
       },
-      "next_public_pane_number": 3,
+      "next_public_pane_number": 4,
       "public_tab_numbers": [
         1,
-        2
+        2,
+        3
       ],
-      "next_public_tab_number": 3,
+      "next_public_tab_number": 4,
       "tabs": [
         {
           "custom_name": null,
@@ -341,25 +343,39 @@
                 "source": "herdr:pi",
                 "agent": "pi",
                 "kind": "path",
-                "value": "/home/toms/.pi/agent/sessions/--home-toms-dev-lang-exp--/2026-07-16T04-35-32-283Z_019f6935-5b3b-76ed-b191-6eaa71472868.jsonl"
+                "value": "/home/toms/.pi/agent/sessions/--home-toms-dev-lang-exp--/2026-07-17T04-20-11-388Z_019f6e4d-a9fc-72dc-98b3-27b82d0c7b8c.jsonl"
               }
             }
           },
           "zoomed": false,
           "focused": 46,
           "root_pane": 46
+        },
+        {
+          "custom_name": "git",
+          "layout": {
+            "Pane": 72
+          },
+          "panes": {
+            "72": {
+              "cwd": "/home/toms/dev/lang-exp"
+            }
+          },
+          "zoomed": false,
+          "focused": 72,
+          "root_pane": 72
         }
       ],
-      "active_tab": 1
+      "active_tab": 0
     },
     {
       "id": "wK",
       "custom_name": null,
       "identity_cwd": "/home/toms/dev/bl-test",
       "public_pane_numbers": {
+        "62": 10,
         "66": 12,
         "63": 11,
-        "62": 10,
         "48": 1
       },
       "next_public_pane_number": 13,
@@ -448,10 +464,10 @@
         "is_linked_worktree": true
       },
       "public_pane_numbers": {
-        "54": 3,
+        "64": 4,
         "65": 5,
         "52": 1,
-        "64": 4
+        "54": 3
       },
       "next_public_pane_number": 6,
       "public_tab_numbers": [
@@ -528,7 +544,7 @@
           "root_pane": 64
         }
       ],
-      "active_tab": 1
+      "active_tab": 2
     }
   ],
   "active": 2,
