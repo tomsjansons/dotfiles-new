@@ -9,38 +9,21 @@
     "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
     "npm:@howaboua/pi-vent",
     "npm:pi-nvim",
-    "npm:pi-subagents",
-    "npm:@quintinshaw/pi-dynamic-workflows",
     "npm:pi-continuous-learning",
-    "npm:pi-commandcode-provider",
-    "npm:pi-intercom"
+    "npm:pi-commandcode-provider"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",
-  "subagents": {
-    "agentOverrides": {
-      "context-builder": {
-        "disabled": true
-      },
-      "delegate": {
-        "disabled": true
-      },
-      "oracle": {
-        "disabled": true
-      },
-      "planner": {
-        "disabled": true
-      },
-      "researcher": {
-        "disabled": true
-      },
-      "scout": {
-        "disabled": true
-      }
-    }
-  },
   "markdown": {
     "codeBlockIndent": ""
   },
-  "outputPad": 0
+  "outputPad": 0,
+  "retry": {
+    "enabled": true,
+    "maxRetries": 12,
+    "baseDelayMs": 5000,
+    "provider": {
+      "maxRetries": 0
+    }
+  }
 }

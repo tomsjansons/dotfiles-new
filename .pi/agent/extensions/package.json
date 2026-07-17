@@ -1,17 +1,16 @@
 {
-  "name": "pi-agent-extensions-workspace",
-  "private": true,
-  "type": "module",
-  "packageManager": "pnpm@10.33.0",
-  "workspaces": [
-    "at-preload",
-    "hashline-tools",
-    "idle-notify",
-    "gpt-preamble",
-    "pi-lsp"
-  ],
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0",
-    "@earendil-works/pi-tui": "^0.74.0"
-  }
+	"name": "pi-agent-extensions-workspace",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.33.0",
+	"workspaces": [
+		"at-preload",
+		"hashline-tools",
+		"gpt-preamble",
+		"pi-lsp"
+	],
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@earendil-works/pi-tui": "^0.74.0"
+	}
 }

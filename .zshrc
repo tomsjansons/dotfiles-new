@@ -113,6 +113,20 @@ secret-init() {
   export OPENROUTER_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "OPENROUTER_API_KEY" --output json | jq -r '.item.content.note')"
   export MINIMAX_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "MINIMAX_API_KEY" --output json | jq -r '.item.content.note')"
   export ZAI_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "ZAI_API_KEY" --output json | jq -r '.item.content.note')"
+
+  local adv_prod_mysql_uri
+  adv_prod_mysql_uri="$(pass-cli item view --vault-name "Personal" --item-title "ADV_PROD_MYSQL_URI" --output json | jq -r '.item.content.note')"
+  local adv_prod_mysql_uri_pattern='^mysql://([^:]+):([^@]+)@([^:]+):([0-9]+)/([^?]+)(\?.*)?$'
+
+  if [[ "$adv_prod_mysql_uri" =~ $adv_prod_mysql_uri_pattern ]]; then
+    export ADV_PROD_MYSQL_USER="${match[1]}"
+    export ADV_PROD_MYSQL_PWD="${match[2]}"
+    export ADV_PROD_MYSQL_HOST="${match[3]}"
+    export ADV_PROD_MYSQL_PORT="${match[4]}"
+  else
+    print -u2 "Failed to parse ADV_PROD_MYSQL_URI"
+    return 1
+  fi
 }
 
 z() {
@@ -169,17 +183,12 @@ z() {
    esac
  }
 
-export PNPM_HOME="/home/toms/.local/share/pnpm"
+export PNPM_HOME="$HOME/.local/share/pnpm"
 
-case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-esac
-
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
+# pnpm v11 installs global executables in $PNPM_HOME/bin. Keep the
+# legacy pnpm <=10 bin directory ($PNPM_HOME) out of PATH.
+typeset -U path PATH
+path=("$PNPM_HOME/bin" "${(@)path:#$PNPM_HOME}")
 
 command -v wt >/dev/null 2>&1 && cached-zsh-init wt 'command wt config shell init zsh'
 
