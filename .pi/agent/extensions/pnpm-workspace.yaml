@@ -3,6 +3,8 @@ packages:
   - hashline-tools
   - idle-notify
   - gpt-preamble
+  - herdr
   - job-runtime
   - pi-jobs
+  - bash-jobs
   - pi-lsp

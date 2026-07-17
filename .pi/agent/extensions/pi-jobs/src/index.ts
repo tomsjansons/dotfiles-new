@@ -76,10 +76,10 @@ export default function piJobs(pi: ExtensionAPI): void {
     name: "job",
     label: "Job",
     description:
-      "Run a managed JavaScript or bash job. JavaScript cmd is an async function body: use top-level await and return output explicitly; console is unavailable. Both outer and nested JavaScript contexts expose job/job_list/job_stop. JavaScript has unrestricted dynamic imports, filesystem, and network (including fetch), but cannot spawn subprocesses directly. Bash uses explicit bash -c. Sync returns bounded head/tail output plus outputPath; async returns immediately and only root async jobs notify on completion. Use read outside JavaScript or node:fs/promises inside JavaScript for full output. There are no job read/wait operations; compose Promise timers and job_list instead.",
-    promptSnippet: "Run managed JavaScript or bash jobs (sync or async)",
+      "Run a managed JavaScript or bash job. JavaScript cmd is an async function body: use top-level await and return output explicitly; console is unavailable. Both outer and nested JavaScript contexts expose job/job_list/job_stop. JavaScript has unrestricted dynamic imports, filesystem, and network (including fetch), but cannot spawn subprocesses directly. Bash jobs route to validated Herdr panes when available and otherwise run as managed local processes; both backends explicitly use bash -c. Sync returns bounded head/tail output plus outputPath; async returns immediately and only root async jobs notify on completion. Use read outside JavaScript or node:fs/promises inside JavaScript for full output. There are no job read/wait operations; compose Promise timers and job_list instead.",
+    promptSnippet: "Run managed JavaScript or bash jobs synchronously or asynchronously",
     promptGuidelines: [
-      "Use job({type:'bash', cmd, mode}) for all model shell commands; the standalone bash tool is unavailable after the bash provider is installed.",
+      "Use job with type 'bash' for model shell commands; the standalone bash tool is inactive by default and user-toggleable with /bash-tool on|off.",
       "Read complete job output from outputPath: use the normal read tool outside JavaScript or node:fs/promises inside it.",
       "Nested jobs never notify automatically; explicitly return child metadata/output paths when they should be surfaced.",
     ],
@@ -177,7 +177,29 @@ export default function piJobs(pi: ExtensionAPI): void {
     },
   });
 
+  const setBashToolActive = (active: boolean): void => {
+    const activeTools = new Set(pi.getActiveTools());
+    if (active) activeTools.add("bash");
+    else activeTools.delete("bash");
+    pi.setActiveTools([...activeTools]);
+  };
+
+  pi.registerCommand("bash-tool", {
+    description: "Enable or disable the model-facing bash tool: /bash-tool on|off",
+    handler: async (args, ctx) => {
+      const requested = args.trim().toLowerCase();
+      if (requested !== "on" && requested !== "off") {
+        ctx.ui.notify("Usage: /bash-tool on|off", "warning");
+        return;
+      }
+      const active = requested === "on";
+      setBashToolActive(active);
+      ctx.ui.notify(`Model-facing bash tool ${active ? "enabled" : "disabled"}.`, "info");
+    },
+  });
+
   pi.on("session_start", async (_event, ctx) => {
+    setBashToolActive(false);
     const sessionId = ctx.sessionManager.getSessionId();
     manager.setDeliveryHandler(async (delivery: CompletionDelivery) => {
       const currentSessionId = ctx.sessionManager.getSessionId();

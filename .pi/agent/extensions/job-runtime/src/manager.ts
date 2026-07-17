@@ -264,7 +264,7 @@ export class JobManager {
     }
 
     if (terminal.outputText !== undefined) {
-      await atomicWrite(record.outputPath, terminal.outputText);
+      if (!terminal.outputPersisted) await atomicWrite(record.outputPath, terminal.outputText);
       const truncated = truncateMiddle(terminal.outputText);
       record.output = truncated.text;
       record.outputTruncated = truncated.truncated;

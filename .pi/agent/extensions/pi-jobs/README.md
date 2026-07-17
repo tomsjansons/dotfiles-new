@@ -1,6 +1,6 @@
 # Pi jobs
 
-Step-one unified managed-job extension.
+Unified managed-job extension with isolated JavaScript and routed bash providers.
 
 ## Model tools
 
@@ -17,8 +17,17 @@ JavaScript jobs:
 - return a 2,000-line/50-KiB head-and-tail projection;
 - allow unrestricted filesystem/network access, dynamic `import()`, and `fetch`;
 - deny direct subprocesses, workers, native addons, FFI/WASI, and inspector access;
-- use `job({ type: "bash" })` for subprocess work once the step-two provider is installed.
+- use `job({ type: "bash" })` for subprocess work.
 
 There are no job read/wait operations. Use normal Pi `read` outside JavaScript, `node:fs/promises` inside JavaScript, and ordinary Promise timers with `job_list` for waiting.
 
-The routed local/Herdr `bash` provider is step two and is not implemented in this package yet.
+## Standalone bash tool
+
+The model-facing standalone `bash` tool is inactive by default but remains registered. Toggle it for the current session with:
+
+- `/bash-tool on`
+- `/bash-tool off`
+
+A session start or `/reload` restores the default of off. User `!command` execution is unaffected.
+
+Bash jobs use a validated Herdr `pi-shell` pane when available and a managed local process otherwise. Both backends explicitly execute `bash -c`, stream complete combined output to `output.log`, and support sync, async, timeout, and stop lifecycle.

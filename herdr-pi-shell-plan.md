@@ -1,6 +1,6 @@
 # Herdr-backed Pi shell plan
 
-Status: **tool surface confirmed; step-one JavaScript job runtime implemented, step-two bash/Herdr provider pending.**
+Status: **implemented and verified with automated local-provider tests plus live Herdr-routed test execution.**
 
 ## Architectural reset
 
@@ -12,7 +12,7 @@ The model-facing tool surface is intentionally divided by role:
 
 - **Pi work tools stay direct in the agent context.** `read`, `write`, `edit`, `vent`, and similar tools remain ordinary Pi tools with native renderers/hooks. JavaScript jobs do not receive those Pi tool wrappers, but they do have unrestricted raw Node filesystem and network APIs.
 - **One job toolset spans both planes.** The normal Pi context and every JavaScript job receive the same `job`, `job_list`, and `job_stop` operations.
-- **There is no standalone `bash` model tool.** Every shell command uses `job({ type: "bash", ... })`; the provider routes to Herdr when validated and otherwise launches bash locally.
+- **The standalone `bash` model tool is inactive by default, not unregistered.** Users may temporarily restore it with `/bash-tool on` and disable it again with `/bash-tool off`; normal model shell work uses `job({ type: "bash", ... })` once that provider is installed.
 
 Step one does not bridge installed Pi tools. A provider registry admits explicit job types; raw filesystem/network access is ordinary child-process capability, not invocation of Pi's work-plane tools.
 
@@ -38,7 +38,7 @@ Program output is persisted by path. The outer agent may use Pi's direct `read`;
 
 ### Step two: routed bash jobs
 
-Build the reusable Herdr library and a bash job provider over the same three-operation interface. The provider checks each job's context: validated Herdr runs in a fresh `pi-shell` pane; otherwise it launches bash directly as a managed local process. The standalone Pi `bash` tool is removed from the active model toolset.
+Build the reusable Herdr library and a bash job provider over the same three-operation interface. The provider checks each job's context: validated Herdr runs in a fresh `pi-shell` pane; otherwise it launches bash directly as a managed local process. The standalone Pi `bash` tool is already inactive by default through `pi-jobs`.
 
 ```ts
 const child = await job({
@@ -63,7 +63,7 @@ A future, out-of-scope subagent provider will reuse the Herdr library and may ad
 - Herdr emits `pane.exited`, but that public event does not carry the process exit code ([source](https://github.com/ogulcancelik/herdr/blob/299dd4163a96381ec2d8e5bde13d7ba6d6432373/src/api/schema/events.rs#L493-L501)).
 - Pi's built-in bash backend supports streaming, abort, timeout, cwd, environment, and process-tree termination, but it selects the configured shell. The unified `type: "bash"` provider needs similar lifecycle behavior while explicitly spawning bash instead.
 - Pi's built-in bash tool is foreground-only and has no managed job IDs or async lifecycle.
-- This repo's `hashline-tools` extension overrides `bash`; the job adapter must remove the active `bash` name after extension/session reload without disturbing other active tools.
+- This repo's `hashline-tools` extension overrides `bash`; `pi-jobs` removes the active `bash` name after every extension/session reload without disturbing other active tools, while `/bash-tool on|off` provides an explicit user-controlled escape hatch.
 - Pi 0.80.3 does **not** publicly expose registered tool executors. `pi.getAllTools()` returns metadata only; the internal session has full definitions, but `ExtensionAPI` has no invoke method. The design therefore exposes only explicit job providers and never attempts a generic bridge to installed Pi tools.
 - Existing provider-agnostic PTC extensions use the same broad architecture proposed here: an isolated subprocess, generated async wrappers, and host RPC. `pi-ptc-next` recreates built-in executors and can invoke only custom executors it captured itself, confirming the public Pi limitation.
 - SuperJSON 2.2.5 supports circular references even though its README does not advertise them. Its walker tracks object identity, short-circuits previously seen values, and replaces an active cycle edge with `null` ([walker](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/plainer.ts#L188-L235)); serialization emits referential-equality metadata ([serialize](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/index.ts#L33-L58)); deserialization restores repeated and root/self references ([restore](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/plainer.ts#L81-L114)). The repository includes an explicit cyclic parent/child test ([test](https://github.com/flightcontrolhq/superjson/blob/aaa65e36e8e31da740265a56b27c965ca1c7b754/src/index.test.ts#L330-L348)).
@@ -399,7 +399,7 @@ The bash package always registers one `type: "bash"` provider. For each start it
 - **Validated Herdr:** resolve/create the current workspace's `pi-shell` tab and run in a new unfocused pane.
 - **No valid Herdr context:** launch a managed local bash process directly.
 
-The package removes `bash` from Pi's active model tools during every session start/reload while preserving all other active tools. It never registers a replacement named `bash`; `job({ type: "bash" })` is the only model-facing shell interface.
+The `pi-jobs` package removes `bash` from Pi's active model tools during every session start/reload while preserving all other active tools. It never registers a replacement named `bash`; `/bash-tool on|off` can explicitly toggle the still-registered tool, and `job({ type: "bash" })` remains the intended model-facing shell interface.
 
 #### Explicit bash semantics
 
@@ -525,7 +525,7 @@ Use a fake Unix-socket server as the production adapter's test counterpart and t
 
 Use fake `ExtensionAPI`, context, and `HerdrJobHost` adapters:
 
-- The standalone `bash` model tool is inactive after startup/reload; only `job({ type: "bash" })` launches shell commands.
+- The standalone `bash` model tool is inactive after startup/reload, `/bash-tool on|off` toggles it without unregistering it, and the default shell path is `job({ type: "bash" })`.
 - Outside Herdr, sync/async bash jobs use the local backend; inside validated Herdr they use fresh panes.
 - Both backends explicitly launch `bash -c`, forward cwd/environment/timeout/cancellation, capture output, and normalize exit status.
 - Managed async bash returns ID and live output path promptly; direct `read` inspects it and `job_list` reports status.
@@ -559,7 +559,7 @@ Never run this suite against the user's normal workspace by default.
 5. Verify identical schemas/results in normal Pi context and inside JS jobs.
 6. Only after JavaScript jobs are stable, add the Herdr package and routed bash provider.
 7. Implement typed Herdr transport, discovery, target-tab/root management, pane jobs, and local fallback.
-8. Register the bash provider, deactivate standalone `bash`, and test explicit `bash -c` on both backends.
+8. Register the bash provider and test explicit `bash -c` on both backends; standalone `bash` deactivation and `/bash-tool on|off` are already supplied by `pi-jobs`.
 9. Resolve Herdr configuration and add integration tests; do not alter `!command`.
 10. Manually verify nesting, reload, session switching, cancellation, disconnects, and Pi quit across providers.
 
@@ -567,7 +567,7 @@ Never run this suite against the user's normal workspace by default.
 
 1. **Resolved:** JavaScript jobs are step one; the Herdr bash provider integrates in step two.
 2. **Resolved:** normal Pi and inner JavaScript contexts receive the same `job`, `job_list`, and `job_stop`; direct work tools stay outside JavaScript.
-3. **Resolved:** standalone model `bash` is removed; `job.type = "bash"` is the only model shell API and routes to validated Herdr or managed local bash.
+3. **Resolved:** standalone model `bash` is inactive by default but remains registered and user-toggleable through `/bash-tool on|off`; `job.type = "bash"` is the intended model shell API and routes to validated Herdr or managed local bash once step two is installed.
 4. **Resolved:** planning/review are ordinary nested job compositions, not privileged globals.
 5. **Resolved/out of scope:** a future Herdr `pi-sub` provider may add another job type; current work preserves the provider seam only.
 6. **Resolved:** v1 has only the three-operation job toolset, persisted output, and lifecycle diagnostics; no convenience read/wait/sleep helpers.

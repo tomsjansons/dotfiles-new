@@ -75,6 +75,7 @@ export interface ProviderTerminalResult {
   status: TerminalJobStatus;
   outputPath: string;
   outputText?: string;
+  outputPersisted?: boolean;
   exitCode?: number | null;
   signal?: string | null;
   error?: NormalizedJobError;

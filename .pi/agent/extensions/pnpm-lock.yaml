@@ -27,6 +27,18 @@ importers:
         specifier: ^7.0.5
         version: 7.0.5
 
+  bash-jobs:
+    dependencies:
+      '@dotfiles/herdr':
+        specifier: workspace:*
+        version: link:../herdr
+      '@dotfiles/job-runtime':
+        specifier: workspace:*
+        version: link:../job-runtime
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.74.0
+        version: 0.74.0(ws@8.20.0)(zod@4.3.6)
+
   gpt-preamble:
     dependencies:
       '@earendil-works/pi-coding-agent':
@@ -48,11 +60,7 @@ importers:
         specifier: ^7.0.5
         version: 7.0.5
 
-  idle-notify:
-    dependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: ^0.74.0
-        version: 0.74.0(ws@8.20.0)(zod@4.3.6)
+  herdr: {}
 
   job-runtime:
     dependencies:

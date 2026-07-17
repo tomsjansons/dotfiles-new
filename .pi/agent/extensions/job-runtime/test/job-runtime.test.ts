@@ -93,7 +93,7 @@ test("filesystem and network are available while subprocesses remain denied", as
 test("nested jobs use the shared RPC surface and do not deliver notifications", async () => {
   const jobs = manager();
   const deliveries: string[] = [];
-  jobs.setDeliveryHandler((delivery) => deliveries.push(delivery.job.id));
+  jobs.setDeliveryHandler((delivery) => { deliveries.push(delivery.job.id); });
   const parent = await jobs.start(
     {
       type: "js",
@@ -115,7 +115,7 @@ test("nested jobs use the shared RPC surface and do not deliver notifications", 
 test("async jobs can be stopped and root completion is delivered once", async () => {
   const jobs = manager();
   const deliveries: string[] = [];
-  jobs.setDeliveryHandler((delivery) => deliveries.push(delivery.job.id));
+  jobs.setDeliveryHandler((delivery) => { deliveries.push(delivery.job.id); });
   const running = await jobs.start(
     { type: "js", mode: "async", cmd: "await new Promise(() => {}); return 1" },
     context("stop"),
