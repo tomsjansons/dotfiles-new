@@ -158,6 +158,35 @@ test("renders job tools as compact self-shell rows", () => {
   assert.doesNotMatch(lines[0], /return 1/);
 });
 
+test("renders one visible row while a job has a partial result", () => {
+  const { tools } = setup();
+  const jobTool = tools.get("job");
+  const args = { type: "bash", mode: "sync", cmd: "sleep 10" };
+  const running = {
+    ...completedJob("bash"),
+    status: "running",
+    endedAt: undefined,
+    durationMs: undefined,
+  };
+  const context = { args, executionStarted: true, isError: false, isPartial: true, state: {} };
+
+  const callComponent = jobTool.renderCall(args, theme, context);
+  assert.equal(callComponent.render(120).filter((line: string) => line.trim() !== "").length, 1);
+  const resultComponent = jobTool.renderResult(
+    {
+      content: [{ type: "text", text: "bash job job-bash: running (1.0s)" }],
+      details: { operation: "job", job: running },
+    },
+    { isPartial: true },
+    theme,
+    context,
+  );
+
+  const visibleLines = [...callComponent.render(120), ...resultComponent.render(120)].filter((line) => line.trim() !== "");
+  assert.equal(visibleLines.length, 1);
+  assert.match(visibleLines[0], /bash\/sync job-bash running/);
+});
+
 test("job detail rendering respects tiny widths on every tool render path", async () => {
   const { tools, commands, ctx } = setup();
   await commands.get("job-details").handler("on", ctx);

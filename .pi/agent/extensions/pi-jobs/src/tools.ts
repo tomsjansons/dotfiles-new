@@ -19,6 +19,23 @@ import {
 } from "./rendering.ts";
 import { jobListSchema, jobSchema, jobStopSchema } from "./tool-schemas.ts";
 
+const CALL_ROW_STATE = Symbol("piJobs.callRow");
+
+type HideableToolRow = {
+  hide(): void;
+  invalidate(): void;
+  render(width: number): string[];
+};
+
+function hideableToolRow(component: { invalidate(): void; render(width: number): string[] }): HideableToolRow {
+  let visible = true;
+  return {
+    hide() { visible = false; },
+    invalidate() { component.invalidate(); },
+    render(width: number) { return visible ? component.render(width) : []; },
+  };
+}
+
 function sessionContext(ctx: ExtensionContext, rootToolCallId?: string): JobInvocationContext {
   const sessionId = ctx.sessionManager.getSessionId();
   const sessionPath = ctx.sessionManager.getSessionFile();
@@ -98,9 +115,12 @@ export function registerJobTools(
     },
     renderCall(args, theme, context) {
       if (!context.isPartial) return emptyToolRow();
-      return renderJobRow(args, undefined, false, showJobDetails(), theme);
+      const row = hideableToolRow(renderJobRow(args, undefined, false, showJobDetails(), theme));
+      if (context.state) context.state[CALL_ROW_STATE] = row;
+      return row;
     },
     renderResult(result, { isPartial }, theme, context) {
+      (context.state?.[CALL_ROW_STATE] as HideableToolRow | undefined)?.hide();
       const details = result.details as JobToolDetails | undefined;
       return renderJobRow(
         context.args,
