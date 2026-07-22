@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.80.6",
+  "lastChangelogVersion": "0.80.10",
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "openai-codex",
@@ -10,7 +10,8 @@
     "npm:@howaboua/pi-vent",
     "npm:pi-nvim",
     "npm:pi-continuous-learning",
-    "npm:pi-commandcode-provider"
+    "npm:pi-commandcode-provider",
+    "npm:pi-fabric"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",
