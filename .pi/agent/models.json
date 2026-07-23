@@ -1,0 +1,67 @@
+{
+	"providers": {
+		"local-llamacpp": {
+			"baseUrl": "http://toms-rog-cachy:8888/v1",
+			"api": "openai-completions",
+			"apiKey": "local",
+			"compat": {
+				"supportsDeveloperRole": false,
+				"supportsReasoningEffort": false,
+				"maxTokensField": "max_tokens"
+			},
+			"models": [
+				{
+					"id": "ornith-1.0-9b",
+					"name": "Ornith 1.0 9B (toms-rog-cachy)",
+					"reasoning": false,
+					"input": ["text"],
+					"contextWindow": 34000,
+					"maxTokens": 34000,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0
+					}
+				}
+			]
+		},
+		"qwencloud-token-plan": {
+			"baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+			"api": "openai-completions",
+			"apiKey": "$QWENCLOUD_TOKEN_PLAN_API_KEY",
+			"compat": {
+				"supportsStore": false,
+				"supportsDeveloperRole": false,
+				"supportsReasoningEffort": true,
+				"supportsUsageInStreaming": true,
+				"maxTokensField": "max_completion_tokens"
+			},
+			"models": [
+				{
+					"id": "qwen3.8-max-preview",
+					"name": "Qwen 3.8 Max Preview (QwenCloud Token Plan)",
+					"reasoning": true,
+					"thinkingLevelMap": {
+						"off": null,
+						"minimal": "low",
+						"low": "low",
+						"medium": "medium",
+						"high": "xhigh",
+						"xhigh": "xhigh",
+						"max": "xhigh"
+					},
+					"input": ["text", "image"],
+					"contextWindow": 983616,
+					"maxTokens": 131072,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0
+					}
+				}
+			]
+		}
+	}
+}

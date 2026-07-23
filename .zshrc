@@ -113,6 +113,7 @@ secret-init() {
   export OPENROUTER_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "OPENROUTER_API_KEY" --output json | jq -r '.item.content.note')"
   export MINIMAX_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "MINIMAX_API_KEY" --output json | jq -r '.item.content.note')"
   export ZAI_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "ZAI_API_KEY" --output json | jq -r '.item.content.note')"
+  export QWENCLOUD_TOKEN_PLAN_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "QWENCLOUD_TOKEN_PLAN_API_KEY" --output json | jq -r '.item.content.note')"
 
   local adv_prod_mysql_uri
   adv_prod_mysql_uri="$(pass-cli item view --vault-name "Personal" --item-title "ADV_PROD_MYSQL_URI" --output json | jq -r '.item.content.note')"

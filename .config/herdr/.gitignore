@@ -1,3 +1,5 @@
-herdr-server.log
-herdr-client.log
+*.log
+*.sock
 session.json
+release-notes.json
+sessions/
