@@ -15,30 +15,6 @@ importers:
         specifier: ^0.74.0
         version: 0.74.0
 
-  at-preload:
-    dependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: ^0.74.0
-        version: 0.74.0(ws@8.20.0)(zod@4.3.6)
-      '@earendil-works/pi-tui':
-        specifier: ^0.74.0
-        version: 0.74.0
-      ignore:
-        specifier: ^7.0.5
-        version: 7.0.5
-
-  bash-jobs:
-    dependencies:
-      '@dotfiles/herdr':
-        specifier: workspace:*
-        version: link:../herdr
-      '@dotfiles/job-runtime':
-        specifier: workspace:*
-        version: link:../job-runtime
-      '@earendil-works/pi-coding-agent':
-        specifier: ^0.74.0
-        version: 0.74.0(ws@8.20.0)(zod@4.3.6)
-
   gpt-preamble:
     dependencies:
       '@earendil-works/pi-coding-agent':
@@ -50,41 +26,11 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.74.0
         version: 0.74.0(ws@8.20.0)(zod@4.3.6)
-      '@earendil-works/pi-tui':
-        specifier: ^0.74.0
-        version: 0.74.0
       '@sinclair/typebox':
         specifier: ^0.34.49
         version: 0.34.49
-      ignore:
-        specifier: ^7.0.5
-        version: 7.0.5
 
   herdr: {}
-
-  job-runtime:
-    dependencies:
-      superjson:
-        specifier: 2.2.5
-        version: 2.2.5
-      yaml:
-        specifier: 2.8.3
-        version: 2.8.3
-
-  pi-jobs:
-    dependencies:
-      '@dotfiles/job-runtime':
-        specifier: workspace:*
-        version: link:../job-runtime
-      '@earendil-works/pi-coding-agent':
-        specifier: ^0.74.0
-        version: 0.74.0(ws@8.20.0)(zod@4.3.6)
-      '@earendil-works/pi-tui':
-        specifier: ^0.74.0
-        version: 0.74.0
-      '@sinclair/typebox':
-        specifier: ^0.34.49
-        version: 0.34.49
 
   pi-lsp:
     dependencies:
@@ -689,10 +635,6 @@ packages:
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
 
-  copy-anything@4.0.5:
-    resolution: {integrity: sha512-7Vv6asjS4gMOuILabD3l739tsaxFQmC+a7pLZm02zyvs8p977bL3zEgq3yDk5rn9B0PbYgIv++jmHcuUab4RhA==}
-    engines: {node: '>=18'}
-
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
     engines: {node: '>= 12'}
@@ -851,10 +793,6 @@ packages:
   is-fullwidth-code-point@3.0.0:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
     engines: {node: '>=8'}
-
-  is-what@5.5.0:
-    resolution: {integrity: sha512-oG7cgbmg5kLYae2N5IVd3jm2s+vldjxJzK1pcu9LfpGuQ93MQSzo0okvRna+7y5ifrD+20FE8FvjusyGaz14fw==}
-    engines: {node: '>=18'}
 
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
@@ -1050,10 +988,6 @@ packages:
   strtok3@10.3.5:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
     engines: {node: '>=18'}
-
-  superjson@2.2.5:
-    resolution: {integrity: sha512-zWPTX96LVsA/eVYnqOM2+ofcdPqdS1dAF1LN4TS2/MWuUpfitd9ctTa87wt4xrYnZnkLtS69xpBdSxVBP5Rm6w==}
-    engines: {node: '>=16'}
 
   supports-color@7.2.0:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
@@ -2154,10 +2088,6 @@ snapshots:
 
   color-name@1.1.4: {}
 
-  copy-anything@4.0.5:
-    dependencies:
-      is-what: 5.5.0
-
   data-uri-to-buffer@4.0.1: {}
 
   data-uri-to-buffer@6.0.2: {}
@@ -2328,8 +2258,6 @@ snapshots:
   ip-address@10.1.0: {}
 
   is-fullwidth-code-point@3.0.0: {}
-
-  is-what@5.5.0: {}
 
   jiti@2.7.0: {}
 
@@ -2535,10 +2463,6 @@ snapshots:
   strtok3@10.3.5:
     dependencies:
       '@tokenizer/token': 0.3.0
-
-  superjson@2.2.5:
-    dependencies:
-      copy-anything: 4.0.5
 
   supports-color@7.2.0:
     dependencies:

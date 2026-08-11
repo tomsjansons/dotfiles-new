@@ -1,0 +1,13 @@
+{
+	"name": "hashline-tools",
+	"version": "0.1.0",
+	"description": "Hashline read/write/edit overrides (snapshot-tagged reads, seen-line enforcement) + opencode-style jump pruner for old tool results",
+	"type": "module",
+	"pi": {
+		"extensions": ["./index.ts"]
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@sinclair/typebox": "^0.34.49"
+	}
+}
