@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.80.10",
+  "lastChangelogVersion": "0.84.1",
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "kimi-coding",
@@ -9,9 +9,9 @@
     "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
     "npm:@howaboua/pi-vent",
     "npm:pi-nvim",
-    "npm:pi-continuous-learning",
     "npm:pi-commandcode-provider",
-    "npm:pi-fabric"
+    "npm:pi-continual-harness",
+    "npm:@tintinweb/pi-subagents"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",

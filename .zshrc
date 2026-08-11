@@ -194,3 +194,175 @@ path=("$PNPM_HOME/bin" "${(@)path:#$PNPM_HOME}")
 command -v wt >/dev/null 2>&1 && cached-zsh-init wt 'command wt config shell init zsh'
 
 command -v pulumi >/dev/null 2>&1 && cached-zsh-init pulumi 'command pulumi completion zsh'
+
+
+# ---------------------------------------------------------------------------
+# orp-cleanup: find and remove orphaned advangrid dev environments.
+#
+# When herdr closes a workspace/pane it can leave behind:
+#   - detached tmux sessions (advangrid-<slot>) running dev servers/watchers
+#   - docker compose projects (advangrid-<slot>) with ~7 containers each
+#   - slot state dirs ($XDG_STATE_HOME/advangrid-dev/<slot>) and named volumes
+#
+# A tmux session is "orphaned" when no live herdr workspace references its
+# worktree (fallback: no attached client, when herdr is unavailable). A
+# compose project or state dir is orphaned when its slot has no surviving
+# tmux session.
+#
+# Usage: orp-cleanup [-n|--dry-run] [-y|--yes]
+orp-cleanup() {
+  local dry_run=0 assume_yes=0
+  while (( $# )); do
+    case "$1" in
+      -n|--dry-run) dry_run=1 ;;
+      -y|--yes)     assume_yes=1 ;;
+      -h|--help)    print -r -- 'Usage: orp-cleanup [-n|--dry-run] [-y|--yes]'; return 0 ;;
+      *)            print -u2 -- "orp-cleanup: unknown option: $1"; return 2 ;;
+    esac
+    shift
+  done
+
+  local state_root="${XDG_STATE_HOME:-$HOME/.local/state}/advangrid-dev"
+  local -a live_worktrees orphan_sessions orphan_projects orphan_state vols nets
+  local -a sorted_slots sorted_res_slots
+  local -A live_slots orphan_slots orphan_res_slots
+  local session project slot cwd attached d orphan stub rc=0
+
+  # Live herdr workspaces (preferred liveness signal).
+  if (( $+commands[herdr] && $+commands[jq] )); then
+    live_worktrees=(${(f)"$(herdr workspace list 2>/dev/null \
+      | jq -r '.result.workspaces[] | .worktree.checkout_path // empty' 2>/dev/null)"})
+  fi
+
+  # 1. tmux sessions advangrid-<slot> orphaned by closed herdr workspaces.
+  if (( $+commands[tmux] )); then
+    for session in ${(f)"$(tmux list-sessions -F '#S' 2>/dev/null)"}; do
+      [[ "$session" == advangrid-<-> ]] || continue
+      slot="${session#advangrid-}"
+      orphan=0
+      if (( ${#live_worktrees} )); then
+        cwd="$(tmux list-panes -t "$session" -F '#{pane_current_path}' 2>/dev/null | head -n 1)"
+        if [[ -z "$cwd" || " ${live_worktrees[*]} " != *" $cwd "* ]]; then
+          orphan=1
+        fi
+      else
+        attached="$(tmux display-message -p -t "$session" '#{session_attached}' 2>/dev/null)"
+        [[ "$attached" == "0" ]] && orphan=1
+      fi
+      if (( orphan )); then
+        orphan_sessions+=("$session")
+        orphan_slots[$slot]=1
+      else
+        live_slots[$slot]=1
+      fi
+    done
+  fi
+
+  # 2. docker compose projects advangrid-<slot> with no surviving tmux session.
+  if (( $+commands[docker] )); then
+    for project in ${(f)"$(docker ps -a \
+        --filter label=com.docker.compose.project \
+        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | sort -u)"}; do
+      [[ "$project" == advangrid-<-> ]] || continue
+      slot="${project#advangrid-}"
+      (( ${live_slots[$slot]:-0} )) && continue
+      orphan_projects+=("$project")
+      orphan_slots[$slot]=1
+    done
+  fi
+
+  # 2b. leftover volumes/networks carrying an advangrid-<slot> project label
+  # (containers and state dirs may already be gone).
+  if (( $+commands[docker] )); then
+    for project in ${(f)"$( {
+        docker volume ls --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}'
+        docker network ls --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}'
+      } 2>/dev/null | sort -u)"}; do
+      [[ "$project" == advangrid-<-> ]] || continue
+      slot="${project#advangrid-}"
+      (( ${live_slots[$slot]:-0} )) && continue
+      orphan_res_slots[$slot]=1
+      orphan_slots[$slot]=1
+    done
+  fi
+
+  # 3. leftover slot state dirs whose containers are long gone.
+  if [[ -d "$state_root" ]]; then
+    for d in "$state_root"/<->(N/); do
+      slot="${d:t}"
+      (( ${live_slots[$slot]:-0} )) && continue
+      orphan_state+=("$d")
+      orphan_slots[$slot]=1
+    done
+  fi
+
+  if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} )); then
+    print -r -- "orp-cleanup: no orphaned advangrid dev environments found."
+    return 0
+  fi
+
+  print -r -- "Orphaned advangrid dev environments:"
+  (( ${#orphan_sessions} )) && print -r -- "  tmux sessions:   ${(j: :)orphan_sessions}"
+  (( ${#orphan_projects} )) && print -r -- "  docker projects: ${(j: :)orphan_projects}"
+  (( ${#orphan_state} ))    && print -r -- "  state dirs:      ${(j: :)orphan_state}"
+  # (zsh key-sort flags are unreliable here; sort slot numbers explicitly)
+  (( ${#orphan_slots} ))     && sorted_slots=(${(f)"$(print -l -- ${(k)orphan_slots} | sort -n)"})
+  (( ${#orphan_res_slots} )) && sorted_res_slots=(${(f)"$(print -l -- ${(k)orphan_res_slots} | sort -n)"})
+  (( ${#sorted_res_slots} )) && print -r -- "  vols/nets only:  slots ${(j: :)sorted_res_slots}"
+  (( ${#sorted_slots} ))     && print -r -- "  slots:           ${(j: :)sorted_slots}"
+
+  if (( dry_run )); then
+    print -r -- "Dry run; nothing removed."
+    return 0
+  fi
+
+  if (( ! assume_yes )); then
+    read -q "reply?Remove all of the above? [y/N] " || { print; return 1; }
+    print
+  fi
+
+  stub=""
+  if (( ${#orphan_projects} )); then
+    stub="$(mktemp /tmp/orp-cleanup-compose.XXXXXX.yaml)"
+    print -r -- 'services: {}' > "$stub"
+  fi
+
+  for session in "${orphan_sessions[@]}"; do
+    print -r -- "killing tmux session $session"
+    tmux kill-session -t "$session" || rc=1
+  done
+
+  # 'down' locates containers/networks via the compose project label; the stub
+  # file only satisfies the CLI's requirement for a config file.
+  for project in "${orphan_projects[@]}"; do
+    print -r -- "tearing down docker project $project"
+    docker compose -p "$project" -f "$stub" down --remove-orphans --timeout 5 || rc=1
+  done
+
+  # Named volumes/networks aren't declared in the stub, so remove them by label.
+  if (( $+commands[docker] )); then
+    for slot in "${sorted_slots[@]}"; do
+      vols=(${(f)"$(docker volume ls -q --filter "label=com.docker.compose.project=advangrid-$slot" 2>/dev/null)"})
+      if (( ${#vols} )); then
+        print -r -- "removing volumes: ${(j: :)vols}"
+        docker volume rm "${vols[@]}" || rc=1
+      fi
+      nets=(${(f)"$(docker network ls -q --filter "label=com.docker.compose.project=advangrid-$slot" 2>/dev/null)"})
+      if (( ${#nets} )); then
+        print -r -- "removing network:  advangrid-$slot default"
+        docker network rm "${nets[@]}" >/dev/null || rc=1
+      fi
+    done
+  fi
+
+  for d in "${orphan_state[@]}"; do
+    print -r -- "removing state dir $d"
+    rm -rf -- "$d" || rc=1
+  done
+
+  [[ -n "$stub" ]] && rm -f "$stub"
+  return $rc
+}
+
+# Entire CLI shell completion
+autoload -Uz compinit && compinit && source <(entire completion zsh)
