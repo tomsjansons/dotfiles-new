@@ -20,7 +20,7 @@ import { executeEdit } from "./edit";
 import { registerPruner } from "./prune";
 import { executeRead } from "./read";
 import { executeWrite } from "./write";
-import { parseHeaderLine, pendingComponent, settledComponent } from "./render";
+import { parseHeaderLine, pendingComponent, settledComponent, shouldShowErrorDetail } from "./render";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
@@ -79,7 +79,7 @@ export default function (pi: ExtensionAPI) {
 					.filter((l) => !/^\[.*#[0-9A-F]{4}\]$/.test(l))
 					.map((l) => l.replace(/^\d+:/, ""));
 				const shown = body.join("\n");
-				const errDet = ctx.isError || content.text.includes("Refused") || content.text.startsWith("Error") ? content.text : undefined;
+				const errDet = shouldShowErrorDetail(ctx.isError, content.text) ? content.text : undefined;
 				// Range: first-last displayed N: line numbers (from the prefixes).
 				let range = "";
 				const nums: number[] = [];
@@ -123,7 +123,7 @@ export default function (pi: ExtensionAPI) {
 				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 				const text = content?.text ?? "";
 				const { path, tag } = parseHeaderLine(text);
-				const error = ctx.isError || text.startsWith("Error");
+				const error = shouldShowErrorDetail(ctx.isError, text);
 				const fallbackPath = (ctx.args?.path ?? "").replace(/^@/, "");
 				// Lines written: from the request payload.
 				const written = ctx.args?.content ? ctx.args.content.split("\n").length : 0;
@@ -171,7 +171,7 @@ export default function (pi: ExtensionAPI) {
 				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 				const text = content?.text ?? "";
 				const { path, tag } = parseHeaderLine(text);
-				const error = ctx.isError || text.startsWith("Error");
+				const error = shouldShowErrorDetail(ctx.isError, text);
 				const fallbackPath = (ctx.args?.path ?? "").replace(/^@/, "");
 				// Added/removed lines from the diff, styled green (+N) / red (-M).
 				let range = "";

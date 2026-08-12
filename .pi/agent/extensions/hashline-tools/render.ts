@@ -18,7 +18,7 @@
  * into a plain Container — no green/pending background, no box padding lines.
  */
 
-import { type Component, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -227,11 +227,15 @@ export function settledComponent(
  * on every line.
  */
 export function formatErrorDetail(theme: Theme, message: string): string {
-	const red = theme.fg("error", message);
-	return red
+	return message
 		.split("\n")
-		.map((line) => `${HANGING_INDENT}${line}`)
+		.map((line) => `${HANGING_INDENT}${theme.fg("error", line)}`)
 		.join("\n");
+}
+
+/** Only actual tool errors should render the whole result as red error detail. */
+export function shouldShowErrorDetail(isError: boolean | undefined, text: string): boolean {
+	return Boolean(isError) || text.startsWith("Error");
 }
 
 /**
@@ -248,7 +252,7 @@ export class RawText implements Component {
 		this.#text = text;
 	}
 	invalidate() {}
-	render(_width: number): string[] {
-		return this.#text === "" ? [] : this.#text.split("\n");
+	render(width: number): string[] {
+		return this.#text === "" ? [] : this.#text.split("\n").map((line) => truncateToWidth(line, width));
 	}
 }

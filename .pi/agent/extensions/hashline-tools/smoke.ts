@@ -5,6 +5,8 @@ import { computeFileHash, formatHeader, stripEchoedPrefixes, unwrapHeaderPath } 
 import { SnapshotStore } from "./store";
 import { executeRead } from "./read";
 import { executeEdit } from "./edit";
+import { RawText, shouldShowErrorDetail } from "./render";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -25,6 +27,12 @@ const echo = stripEchoedPrefixes("[f.ts#1A2B]\n1:hello\n2:world");
 check("strip echoed read output", echo.stripped && echo.text === "hello\nworld");
 const legit = stripEchoedPrefixes("1:first\nnot prefixed");
 check("strip refuses non-uniform", !legit.stripped && legit.text === "1:first\nnot prefixed");
+
+// --- render ---
+const tooWide = "        57:" + "x".repeat(220);
+check("RawText truncates rendered lines", new RawText(tooWide).render(80).every((line) => visibleWidth(line) <= 80));
+check("plain read body containing Refused is not an error", !shouldShowErrorDetail(false, '12:const msg = "Refused";'));
+check("real tool error still shows detail", shouldShowErrorDetail(true, '12:const msg = "Refused";'));
 
 // --- store ---
 const store = new SnapshotStore({ maxPaths: 3, maxVersionsPerPath: 2 });

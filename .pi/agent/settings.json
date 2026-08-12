@@ -1,6 +1,6 @@
 {
   "lastChangelogVersion": "0.84.1",
-  "defaultThinkingLevel": "max",
+  "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "commandcode",
   "defaultModel": "deepseek/deepseek-v4-flash",
