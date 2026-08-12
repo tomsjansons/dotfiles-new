@@ -15,12 +15,12 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { executeEdit } from "./edit";
 import { registerPruner } from "./prune";
 import { executeRead } from "./read";
 import { executeWrite } from "./write";
+import { parseHeaderLine, pendingComponent, settledComponent } from "./render";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
@@ -57,34 +57,50 @@ export default function (pi: ExtensionAPI) {
 				"read output starts with a [path#TAG] header; pass that whole header as the edit/write path so the edit is validated against the exact version you saw.",
 			],
 			parameters: readSchema,
+			renderShell: "self",
 
-			// TUI-only renderer: strip hashline prefixes + header for display, so
-			// the terminal preview shows clean file text. Model output untouched.
-			renderResult(result, { expanded }, theme) {
+			// TUI-only: one-line status header, no background, no separator.
+			renderCall(args, theme, ctx) {
+				const path = (args.path ?? args.filePath ?? "").replace(/^@/, "");
+				return pendingComponent(theme, "read", path, ctx.toolCallId);
+			},
+			renderResult(result, { expanded }, theme, ctx) {
 				const content = result.content[0];
+				const fallbackPath = (ctx.args?.path ?? ctx.args?.filePath ?? "").replace(/^@/, "");
 				if (content?.type === "image") {
-					return new Text(theme.fg("success", "Image loaded"), 0, 0);
+					return settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId);
 				}
 				if (content?.type !== "text") {
-					return new Text(theme.fg("dim", "(no text)"), 0, 0);
+					return settledComponent(theme, "read", "", "", fallbackPath || "(no text)", "ok", 120, undefined, ctx.toolCallId);
 				}
-				// Drop the [path#TAG] header line and N: prefixes, keep clamp/truncation notes.
+				const { path, tag } = parseHeaderLine(content.text);
 				const lines = content.text.split("\n");
 				const body = lines
 					.filter((l) => !/^\[.*#[0-9A-F]{4}\]$/.test(l))
 					.map((l) => l.replace(/^\d+:/, ""));
 				const shown = body.join("\n");
-				const lineCount = shown.split("\n").length;
-				const truncated =
-					(result.details as any)?.truncation?.truncated || /Use offset=\d+ to continue/.test(content.text);
-				let header = theme.fg("success", `${lineCount} lines`);
-				if (truncated) header += theme.fg("warning", " (truncated)");
-				if (expanded) {
-					return new Text(`${header}\n\n${shown}`, 0, 0);
+				const errDet = ctx.isError || content.text.includes("Refused") || content.text.startsWith("Error") ? content.text : undefined;
+				// Range: first-last displayed N: line numbers (from the prefixes).
+				let range = "";
+				const nums: number[] = [];
+				for (const l of lines) {
+					const m = l.match(/^(\d+):/);
+					if (m) nums.push(Number(m[1]));
 				}
-				return new Text(header, 0, 0);
+				if (nums.length > 0) range = `${nums[0]}-${nums[nums.length - 1]}`;
+				return settledComponent(
+					theme,
+					"read",
+					range,
+					tag ?? "",
+					path || fallbackPath || "(unknown)",
+					errDet ? "error" : "ok",
+					120,
+					expanded ? shown : undefined,
+					ctx.toolCallId,
+					errDet,
+				);
 			},
-
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				return executeRead(toolCallId, params, signal, onUpdate, ctx);
 			},
@@ -99,6 +115,32 @@ export default function (pi: ExtensionAPI) {
 			promptSnippet: "Create or overwrite files",
 			promptGuidelines: ["Use write only for new files or complete rewrites."],
 			parameters: writeSchema,
+			renderShell: "self",
+			renderCall(args, theme, ctx) {
+				return pendingComponent(theme, "write", (args.path ?? "").replace(/^@/, ""), ctx.toolCallId);
+			},
+			renderResult(result, { expanded }, theme, ctx) {
+				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
+				const text = content?.text ?? "";
+				const { path, tag } = parseHeaderLine(text);
+				const error = ctx.isError || text.startsWith("Error");
+				const fallbackPath = (ctx.args?.path ?? "").replace(/^@/, "");
+				// Lines written: from the request payload.
+				const written = ctx.args?.content ? ctx.args.content.split("\n").length : 0;
+				const range = written > 0 ? `${written}L` : "";
+				return settledComponent(
+					theme,
+					"write",
+					range,
+					tag ?? "",
+					path || fallbackPath || "(unknown)",
+					error ? "error" : "ok",
+					120,
+					expanded ? text : undefined,
+					ctx.toolCallId,
+					error ? text : undefined,
+				);
+			},
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				return executeWrite(toolCallId, params, signal, onUpdate, ctx);
 			},
@@ -121,6 +163,44 @@ export default function (pi: ExtensionAPI) {
 				"edit refuses to touch lines that no read has shown you yet; read the relevant range first when refused.",
 			],
 			parameters: editSchema,
+			renderShell: "self",
+			renderCall(args, theme, ctx) {
+				return pendingComponent(theme, "edit", (args.path ?? "").replace(/^@/, ""), ctx.toolCallId);
+			},
+			renderResult(result, { expanded }, theme, ctx) {
+				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
+				const text = content?.text ?? "";
+				const { path, tag } = parseHeaderLine(text);
+				const error = ctx.isError || text.startsWith("Error");
+				const fallbackPath = (ctx.args?.path ?? "").replace(/^@/, "");
+				// Added/removed lines from the diff, styled green (+N) / red (-M).
+				let range = "";
+				const diff = (result.details as any)?.diff as string | undefined;
+				if (diff && !error) {
+					let added = 0;
+					let removed = 0;
+					for (const l of diff.split("\n")) {
+						if (l.startsWith("+") && !l.startsWith("++")) added++;
+						else if (l.startsWith("-") && !l.startsWith("--")) removed++;
+					}
+					const parts: string[] = [];
+					if (added > 0) parts.push(theme.fg("success", `+${added}L`));
+					if (removed > 0) parts.push(theme.fg("error", `-${removed}L`));
+					range = parts.join(" ");
+				}
+				return settledComponent(
+					theme,
+					"edit",
+					range,
+					tag ?? "",
+					path || fallbackPath || "(unknown)",
+					error ? "error" : "ok",
+					120,
+					expanded ? text : undefined,
+					ctx.toolCallId,
+					error ? text : undefined,
+				);
+			},
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				return executeEdit(toolCallId, params, signal, onUpdate, ctx);
 			},
