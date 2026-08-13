@@ -16,6 +16,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { executeBash, pendingBashComponent, settledBashComponent } from "./bash-render";
 import { executeEdit } from "./edit";
 import { registerPruner } from "./prune";
 import { executeRead } from "./read";
@@ -64,14 +65,14 @@ export default function (pi: ExtensionAPI) {
 				const path = (args.path ?? args.filePath ?? "").replace(/^@/, "");
 				return pendingComponent(theme, "read", path, ctx.toolCallId);
 			},
-			renderResult(result, { expanded }, theme, ctx) {
+			renderResult(result, { expanded, isPartial }, theme, ctx) {
 				const content = result.content[0];
 				const fallbackPath = (ctx.args?.path ?? ctx.args?.filePath ?? "").replace(/^@/, "");
 				if (content?.type === "image") {
-					return settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId);
+					return settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
 				}
 				if (content?.type !== "text") {
-					return settledComponent(theme, "read", "", "", fallbackPath || "(no text)", "ok", 120, undefined, ctx.toolCallId);
+					return settledComponent(theme, "read", "", "", fallbackPath || "(no text)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
 				}
 				const { path, tag } = parseHeaderLine(content.text);
 				const lines = content.text.split("\n");
@@ -99,6 +100,8 @@ export default function (pi: ExtensionAPI) {
 					expanded ? shown : undefined,
 					ctx.toolCallId,
 					errDet,
+					isPartial,
+					ctx.invalidate,
 				);
 			},
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -119,7 +122,7 @@ export default function (pi: ExtensionAPI) {
 			renderCall(args, theme, ctx) {
 				return pendingComponent(theme, "write", (args.path ?? "").replace(/^@/, ""), ctx.toolCallId);
 			},
-			renderResult(result, { expanded }, theme, ctx) {
+			renderResult(result, { expanded, isPartial }, theme, ctx) {
 				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 				const text = content?.text ?? "";
 				const { path, tag } = parseHeaderLine(text);
@@ -139,6 +142,8 @@ export default function (pi: ExtensionAPI) {
 					expanded ? text : undefined,
 					ctx.toolCallId,
 					error ? text : undefined,
+					isPartial,
+					ctx.invalidate,
 				);
 			},
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -167,7 +172,7 @@ export default function (pi: ExtensionAPI) {
 			renderCall(args, theme, ctx) {
 				return pendingComponent(theme, "edit", (args.path ?? "").replace(/^@/, ""), ctx.toolCallId);
 			},
-			renderResult(result, { expanded }, theme, ctx) {
+			renderResult(result, { expanded, isPartial }, theme, ctx) {
 				const content = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 				const text = content?.text ?? "";
 				const { path, tag } = parseHeaderLine(text);
@@ -199,10 +204,58 @@ export default function (pi: ExtensionAPI) {
 					expanded ? text : undefined,
 					ctx.toolCallId,
 					error ? text : undefined,
+					isPartial,
+					ctx.invalidate,
 				);
 			},
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				return executeEdit(toolCallId, params, signal, onUpdate, ctx);
+			},
+		});
+	}
+
+	// Bash: compact hashline-style multi-line rendering + faithful local exec.
+	// Overrides the built-in bash tool by name (extension tools win over built-ins).
+	if (!process.env.PI_HASHLINE_DISABLE) {
+		pi.registerTool({
+			name: "bash",
+			label: "bash",
+			description:
+				"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+			promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
+			promptGuidelines: ["You can inspect PI_* environment variables for current model and session details."],
+			parameters: Type.Object({
+				command: Type.String({ description: "Bash command to execute" }),
+				timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+			}),
+			renderShell: "self",
+
+			renderCall(args, theme, ctx) {
+				// Mirror the built-in bash: mark execution start on the shared renderer state.
+				const state = ctx.state as { startedAt?: number; endedAt?: number; interval?: NodeJS.Timeout };
+				if (ctx.executionStarted && state.startedAt === undefined) {
+					state.startedAt = Date.now();
+					state.endedAt = undefined;
+				}
+				return pendingBashComponent(theme, args.command ?? "", ctx.toolCallId);
+			},
+			renderResult(result, { expanded, isPartial }, theme, ctx) {
+				const state = ctx.state as { startedAt?: number; endedAt?: number };
+				if (isPartial) {
+					// Keep the spinner (renderCall's pending line) animating — don't
+					// settle the header or append a body yet. animateSpinner/stopSpinner
+					// inside settledBashComponent drive the animation.
+					return settledBashComponent(theme, result, ctx.args?.command ?? "", false, undefined, ctx.toolCallId, "", true, ctx.invalidate);
+				}
+				if (state.startedAt !== undefined) {
+					state.endedAt ??= Date.now();
+				}
+				const elapsed = state.startedAt !== undefined ? (state.endedAt ?? Date.now()) - state.startedAt : undefined;
+				// Pass context.isError explicitly: renderResult only receives { content, details }.
+				return settledBashComponent(theme, { ...result, isError: ctx.isError }, ctx.args?.command ?? "", expanded, elapsed, ctx.toolCallId);
+			},
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
+				return executeBash(toolCallId, params, signal, onUpdate, ctx);
 			},
 		});
 	}

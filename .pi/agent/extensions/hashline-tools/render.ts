@@ -21,13 +21,41 @@
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /** Continuation-line indent for wrapped paths (8 spaces). */
-const HANGING_INDENT = "        ";
+export const HANGING_INDENT = "        ";
+
+/**
+ * Dark blue truecolor foreground used for the subject text of every hashline
+ * tool render (bash command, read/write/edit file paths). Truecolor (38;2)
+ * instead of ANSI 34 because many terminal palettes render 34 as violet/pink;
+ * 38;2 forces an actual dark blue regardless of the terminal's 16-color set.
+ */
+export const DARK_BLUE = "\x1b[38;2;30;136;229m"; // #1e88e5 (material blue 600 — a touch lighter than 800)
+export const ANSI_RESET_FG = "\x1b[39m";
+
+/**
+ * Wrap each line of `text` in dark blue (escape at line start, reset at end).
+ * Per-line so RawText's per-line truncation and heredoc byte-faithfulness are
+ * preserved, and pi-tui's \x1b[0m truncation markers can't leak color between
+ * lines.
+ */
+export function colorizeCommand(text: string): string {
+	if (!text) return text;
+	return text
+		.split("\n")
+		.map((line) => `${DARK_BLUE}${line}${ANSI_RESET_FG}`)
+		.join("\n");
+}
 
 /** Module-level spinner tick: advances once per render invocation while pending. */
 let spinnerTick = 0;
+
+/** Advance the module-level spinner frame (called once per render pass). */
+export function nextSpinnerFrame(): string {
+	return SPINNER_FRAMES[spinnerTick++ % SPINNER_FRAMES.length];
+}
 
 /**
  * Live pending-status lines keyed by toolCallId.
@@ -41,7 +69,38 @@ let spinnerTick = 0;
  */
 const pendingLines = new Map<string, RawText>();
 
-function rememberPending(toolCallId: string | undefined, line: RawText): void {
+/**
+ * Live spinner timers keyed by toolCallId.
+ *
+ * The TUI only re-renders a tool row when something invalidates it. While a
+ * tool is pending (streaming), nothing re-triggers the render pass, so the
+ * spinner glyph would freeze. This manager runs a setInterval per pending
+ * toolCallId that calls `invalidate()` (→ ToolExecutionComponent re-runs
+ * renderCall → nextSpinnerFrame() advances → glyph changes).
+ */
+const spinnerIntervals = new Map<string, NodeJS.Timeout>();
+
+/** Start (or keep) a spinner animation for `toolCallId`. */
+export function animateSpinner(toolCallId: string | undefined, invalidate: () => void): void {
+	if (!toolCallId) return;
+	if (spinnerIntervals.has(toolCallId)) return;
+	const interval = setInterval(() => invalidate(), 100);
+	// Keep the Node process alive while a spinner is running (like the built-in).
+	interval.unref?.();
+	spinnerIntervals.set(toolCallId, interval);
+}
+
+/** Stop the spinner animation for `toolCallId` (called when the tool settles). */
+export function stopSpinner(toolCallId: string | undefined): void {
+	if (!toolCallId) return;
+	const interval = spinnerIntervals.get(toolCallId);
+	if (interval) {
+		clearInterval(interval);
+		spinnerIntervals.delete(toolCallId);
+	}
+}
+
+export function rememberPending(toolCallId: string | undefined, line: RawText): void {
 	if (!toolCallId) return;
 	pendingLines.set(toolCallId, line);
 	// Bounded: forget the oldest if we somehow accumulate strays (aborted calls).
@@ -51,7 +110,7 @@ function rememberPending(toolCallId: string | undefined, line: RawText): void {
 	}
 }
 
-function settlePending(toolCallId: string | undefined, text: string): void {
+export function settlePending(toolCallId: string | undefined, text: string): void {
 	if (!toolCallId) return;
 	const line = pendingLines.get(toolCallId);
 	if (line) {
@@ -64,6 +123,7 @@ export const ACTION_GLYPH = {
 	read: "↑",
 	write: "⇊",
 	edit: "↓",
+	bash: "$",
 } as const;
 
 export type ActionKind = keyof typeof ACTION_GLYPH;
@@ -78,7 +138,8 @@ export function parseHeaderLine(text: string): { path: string; tag?: string } {
 	return { path: m[1], tag: m[2].toUpperCase() };
 }
 
-function stripAnsi(s: string): string {
+/** Strip ANSI escape sequences (CSI + OSC) — used to measure visible width. */
+export function stripAnsi(s: string): string {
 	let out = "";
 	let i = 0;
 	while (i < s.length) {
@@ -133,7 +194,7 @@ export function formatStatusLine(
 
 	const statusGlyph =
 		status === "pending"
-			? theme.fg("warning", SPINNER_FRAMES[spinnerTick % SPINNER_FRAMES.length])
+			? theme.fg("warning", nextSpinnerFrame())
 			: status === "error"
 				? theme.fg("error", "✗")
 				: theme.fg("success", "✓");
@@ -150,11 +211,13 @@ export function formatStatusLine(
 
 	const wrapped = wrapPath(path, pathWidth);
 
-	return prefix + wrapped;
+	// Path is the subject of the tool call — colorize it the same dark blue as
+	// the bash command so every hashline tool render is consistent.
+	return prefix + colorizeCommand(wrapped);
 }
 
 /** Wrap a (possibly styled) path at `width`, hanging subsequent lines 8 spaces. */
-function wrapPath(path: string, width: number): string {
+export function wrapPath(path: string, width: number): string {
 	if (width <= 0) return path;
 	// Paths are typically unstyled here (we style at the end), but keep it safe.
 	const plain = stripAnsi(path);
@@ -184,7 +247,7 @@ export function pendingComponent(
 	path: string,
 	toolCallId?: string,
 ): Component {
-	spinnerTick++;
+	nextSpinnerFrame(); // advance the shared spinner once per pending render
 	const line = new RawText(formatStatusLine(theme, kind, "…", "", path, "pending", 120));
 	// Remember so renderResult can rewrite this same line in place.
 	rememberPending(toolCallId, line);
@@ -210,7 +273,17 @@ export function settledComponent(
 	body?: string,
 	toolCallId?: string,
 	errorDetail?: string,
+	// When the result is still streaming, keep the spinner animating instead of
+	// settling it (passed by the tool's renderResult).
+	isPartial = false,
+	invalidate?: () => void,
 ): Component {
+	if (isPartial) {
+		// Still pending: keep the spinner alive, don't settle the header.
+		animateSpinner(toolCallId, invalidate ?? (() => {}));
+		return new RawText("");
+	}
+	stopSpinner(toolCallId);
 	const header = formatStatusLine(theme, kind, range, tag, path, status, maxWidth);
 	settlePending(toolCallId, header);
 	if (status === "error" && errorDetail) {
@@ -247,6 +320,10 @@ export class RawText implements Component {
 	#text: string;
 	constructor(text: string) {
 		this.#text = text;
+	}
+	/** Raw unstyled text access (for measuring before styling). */
+	get text(): string {
+		return this.#text;
 	}
 	setText(text: string) {
 		this.#text = text;

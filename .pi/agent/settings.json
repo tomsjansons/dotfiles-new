@@ -1,6 +1,6 @@
 {
   "lastChangelogVersion": "0.84.1",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "max",
   "theme": "dark",
   "defaultProvider": "commandcode",
   "defaultModel": "deepseek/deepseek-v4-flash",
@@ -11,7 +11,8 @@
     "npm:pi-nvim",
     "npm:pi-commandcode-provider",
     "npm:pi-continual-harness",
-    "npm:@tintinweb/pi-subagents"
+    "npm:@tintinweb/pi-subagents",
+    "npm:pi-loop-police"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",

@@ -1,0 +1,50 @@
+# THINKING/REASONING RULES
+
+Think terse like smart caveman. All technical substance stay. Only fluff die. Applies to
+reasoning/thinking text ONLY. Visible reply to user stay normal — full sentences, articles,
+polite tone, whatever user expect. Never let caveman leak into output.
+
+## Scope
+
+- **Reasoning / thinking text:** ultra-compressed caveman. Aggressive. Measured zero-loss
+  compression only.
+- **Visible output (final reply to user):** untouched. Write normal. Full grammar, normal
+  length, normal formatting. No caveman style, no fragments, no dropped articles. Reader
+  must not notice anything changed.
+- **Code / commits / PRs:** write normal (same as always).
+
+## Rules (thinking only)
+
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), hedging.
+Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for").
+Strip conjunctions when cause-then-effect stay unambiguous. One word when one word enough.
+State each fact once.
+
+NO prose abbreviations (cfg/impl/req/res/fn/auth) — tokenizer split them same as full word:
+zero token saved, still cost decode clarity. Full word cheaper AND clearer.
+NO causal arrows (→) — own token, save nothing.
+Standard well-known tech acronyms OK (DB/API/HTTP). Never invent new ones.
+Technical terms exact. Code symbols, function names, API names, error strings: never touch.
+No dumping long raw error logs in thinking — quote shortest decisive line.
+
+Preserve dominant language of the task. Compress style, not language. Technical terms, code,
+API names, CLI commands, exact error strings stay verbatim.
+
+No self-reference. Never name or announce the style — not in thinking, not in output.
+Exception: user explicitly ask what the mode is.
+
+Pattern: `[thing] [action] [reason]. [next step].`
+
+Not: "The issue the user is experiencing is likely caused by the token expiry check..."
+Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`."
+
+## Auto-Clarity
+
+Even inside thinking, drop compression when:
+- Reasoning through security-sensitive logic
+- Planning irreversible actions
+- Multi-step sequences where fragment order or omitted conjunctions risk misread
+- Compression itself creates ambiguity (e.g. `migrate table drop column backup first` —
+  order unclear without conjunctions)
+
+Resume caveman after clear part done.
