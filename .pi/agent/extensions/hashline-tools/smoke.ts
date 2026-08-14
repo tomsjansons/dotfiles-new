@@ -54,7 +54,7 @@ void tagCollisionText;
 const dir = mkdtempSync(join(tmpdir(), "hl-"));
 const file = join(dir, "foo.ts");
 writeFileSync(file, "l1\nl2\nl3\nl4\nl5\n");
-const ctx = { cwd: dir };
+const ctx = { cwd: dir, model: undefined, modelRegistry: undefined as any };
 const r1 = await executeRead("c1", { path: "foo.ts" }, undefined, undefined, ctx);
 const t = (r: any) => r.content[0].text as string;
 console.log("--- read output ---\n" + t(r1) + "\n---");
@@ -120,6 +120,88 @@ check("untracked overwrite allowed with note", t(w4).includes("never read this s
 // untagged edit skips validation
 const ok2 = await executeEdit("e4", { path: "foo.ts", edits: [{ oldText: "line30", newText: "LINE30" }] }, undefined, undefined, ctx);
 check("untagged edit allowed", !!ok2);
+
+// --- vision fallback ---
+import { describeImage, isVisionCapable, loadVisionFallbackConfig, resolveVisionFallbackModel } from "./vision";
+import { writeFileSync as wfs } from "node:fs";
+
+check("vision-capable model detected", isVisionCapable({ input: ["text", "image"] }));
+check("text-only model detected", !isVisionCapable({ input: ["text"] }));
+check("undefined model is not vision-capable", !isVisionCapable(undefined));
+check("visionFallback config absent → undefined", (await loadVisionFallbackConfig()) === undefined);
+
+// Fake registry: model found with/without auth, complete() returns a canned description.
+const fakeVisionModel = { id: "Qwen/Qwen3.7-Flash", provider: "commandcode", input: ["text", "image"] };
+const fakeCtx = {
+	cwd: dir,
+	model: { input: ["text"] }, // text-only session model
+	modelRegistry: {
+		find: (p: string, m: string) => (p === "commandcode" && m === "Qwen/Qwen3.7-Flash" ? fakeVisionModel : undefined),
+		hasConfiguredAuth: (m: unknown) => m === fakeVisionModel,
+		complete: async () => ({
+			content: [{ type: "text", text: "A red circle on a white background." }],
+		}),
+	},
+} as any;
+
+const resolved = await resolveVisionFallbackModel(fakeCtx);
+check("fallback model resolved", resolved === fakeVisionModel);
+
+const png = join(dir, "img.png");
+// Valid 2x2 PNG (built-in read needs a decodable image to return an image block)
+wfs(png, Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC",
+	"base64",
+));
+const rImg = await executeRead("c8", { path: "img.png" }, undefined, undefined, fakeCtx);
+const tImg = t(rImg);
+check("image read → vision description via fallback", tImg.includes("Described by commandcode/Qwen/Qwen3.7-Flash") && tImg.includes("A red circle"), tImg);
+check("image read drops image block for text-only model", rImg.content.every((c: any) => c.type === "text"));
+
+// No fallback configured (file absent) + non-vision model → text-only note, no error
+const noFallbackCtx = { ...fakeCtx, modelRegistry: { ...fakeCtx.modelRegistry, find: () => undefined } };
+const rNoFb = await executeRead("c9", { path: "img.png" }, undefined, undefined, noFallbackCtx);
+check("no fallback → text-only, no error", t(rNoFb).includes("Read image file") && rNoFb.content.every((c: any) => c.type === "text"), t(rNoFb));
+
+// Vision-capable session model → image block passes through untouched
+const visionCtx = { ...fakeCtx, model: { input: ["text", "image"] } };
+const rVis = await executeRead("c10", { path: "img.png" }, undefined, undefined, visionCtx);
+check("vision model → image block preserved", rVis.content.some((c: any) => c.type === "image"));
+
+// Kill switch: no vision call, image dropped, no error
+process.env.PI_HASHLINE_VISION_DISABLE = "1";
+const rKill = await executeRead("c11", { path: "img.png" }, undefined, undefined, fakeCtx);
+check("kill switch → text-only, no error", t(rKill).includes("Read image file") && rKill.content.every((c: any) => c.type === "text"));
+delete process.env.PI_HASHLINE_VISION_DISABLE;
+
+// Fallback model fails → degrade to text-only note with reason, never hard-error
+const failingCtx = {
+	...fakeCtx,
+	modelRegistry: {
+		...fakeCtx.modelRegistry,
+		complete: async () => {
+			throw new Error("auth failed");
+		},
+	},
+};
+const rFail = await executeRead("c12", { path: "img.png" }, undefined, undefined, failingCtx);
+check(
+	"fallback failure → text-only note with reason",
+	t(rFail).includes("Vision fallback (commandcode/Qwen/Qwen3.7-Flash) failed: auth failed") && rFail.content.every((c: any) => c.type === "text"),
+	t(rFail),
+);
+
+// Configured model not vision-capable → treated as no usable fallback
+const textOnlyModel = { id: "deepseek/deepseek-v4-flash", provider: "commandcode", input: ["text"] };
+const badFallbackCtx = {
+	...fakeCtx,
+	modelRegistry: {
+		...fakeCtx.modelRegistry,
+		find: (p: string, m: string) => (m === "Qwen/Qwen3.7-Flash" ? textOnlyModel : undefined),
+	},
+};
+const rBad = await executeRead("c13", { path: "img.png" }, undefined, undefined, badFallbackCtx);
+check("non-vision configured fallback → text-only, no error", rBad.content.every((c: any) => c.type === "text"), t(rBad));
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

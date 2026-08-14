@@ -13,11 +13,14 @@
  * - Device files that can never EOF are refused before any I/O.
  */
 
-import { createReadTool } from "@earendil-works/pi-coding-agent";
+import { createReadToolDefinition, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { computeFileHash, displayPath, formatHeader } from "./format";
 import { snapshots } from "./store";
+import { describeImage, isVisionCapable, resolveVisionFallbackModel } from "./vision";
+
+const VISION_KILL_SWITCH = "PI_HASHLINE_VISION_DISABLE";
 
 const MAX_LINES = 2000;
 const MAX_BYTES = 50 * 1024;
@@ -55,16 +58,69 @@ function note(text: string) {
 	return { content: [{ type: "text" as const, text }], details: {} };
 }
 
+/**
+ * Vision-capable session model → result as-is (today's behavior).
+ * Non-vision model + image result → describe via the configured fallback
+ * model, or drop the image block with a note when no fallback is usable.
+ * Never hard-errors: a failed fallback degrades to text-only + reason.
+ */
+async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof createReadToolDefinition>["execute"]>>, ctx: ExtensionContext) {
+	const model = ctx.model;
+	if (isVisionCapable(model)) {
+		return result; // session model sees images: behave exactly as today
+	}
+	const imageBlock = result.content.find((c) => c.type === "image");
+	if (!imageBlock) {
+		return result; // not an image result; leave as-is
+	}
+	const textBlock = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
+	const textPart = textBlock?.text ?? `Read image file [${imageBlock.mimeType}]`;
+
+	if (process.env[VISION_KILL_SWITCH]) {
+		// Kill switch: no vision call. Drop the image block, keep the text note.
+		return { ...result, content: [{ type: "text" as const, text: textPart }] };
+	}
+
+	const visionModel = await resolveVisionFallbackModel(ctx);
+	if (!visionModel) {
+		// No usable fallback (unset config, model missing, no auth, or the
+		// configured model isn't vision-capable): drop the image block.
+		return { ...result, content: [{ type: "text" as const, text: textPart }] };
+	}
+
+	let description: string;
+	try {
+		description = await describeImage(imageBlock, visionModel, ctx);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			...result,
+			content: [
+				{ type: "text" as const, text: `${textPart}\n[Vision fallback (${visionModel.provider}/${visionModel.id}) failed: ${msg}]` },
+			],
+		};
+	}
+	return {
+		...result,
+		content: [
+			{
+				type: "text" as const,
+				text: `${textPart}\n\n[Described by ${visionModel.provider}/${visionModel.id}]\n\n${description}`,
+			},
+		],
+	};
+}
+
 export async function executeRead(
 	toolCallId: string,
 	params: ReadParams,
 	signal: AbortSignal | undefined,
 	onUpdate: unknown,
-	ctx: { cwd: string },
+	ctx: ExtensionContext,
 ) {
 	const rawPath = (params.path ?? params.filePath ?? "").replace(/^@/, "");
 	const absolutePath = resolve(ctx.cwd, rawPath);
-	const delegate = createReadTool(ctx.cwd);
+	const delegate = createReadToolDefinition(ctx.cwd);
 
 	if (BLOCKED_DEVICE_RE.test(absolutePath)) {
 		return note(`[Refused: ${absolutePath} is a device/special file that may never terminate a read]`);
@@ -85,15 +141,22 @@ export async function executeRead(
 		st = await stat(absolutePath);
 	} catch {
 		// Not-found handling stays with the built-in (its error text is what models expect).
-		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never);
+		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never, ctx);
 	}
 	if (!st.isFile() || st.size > MAX_TEXT_BYTES) {
-		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never);
+		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never, ctx);
 	}
 
 	const buf = await readFile(absolutePath);
 	if (IMAGE_MAGIC.some((m) => hasMagic(buf, m))) {
-		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never);
+		const result = await delegate.execute(
+			toolCallId,
+			{ path: rawPath, offset, limit } as never,
+			signal,
+			onUpdate as never,
+			ctx,
+		);
+		return maybeVisionFallback(result, ctx);
 	}
 	if (buf.subarray(0, 8192).includes(0)) {
 		return note(`[Binary file: ${displayPath(absolutePath, ctx.cwd)} (${st.size} bytes). Not displayed]`);
