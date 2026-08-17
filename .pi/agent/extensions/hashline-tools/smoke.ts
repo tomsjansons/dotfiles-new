@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeFileHash, formatHeader, stripEchoedPrefixes, unwrapHeaderPath } from "./format";
 import { SnapshotStore } from "./store";
-import { executeRead } from "./read";
+import { executeRead, getStashedImageRead } from "./read";
 import { executeEdit } from "./edit";
-import { RawText, shouldShowErrorDetail } from "./render";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Column, descriptionParagraph, LIGHTER_BLUE, RawText, shouldShowErrorDetail } from "./render";
+import { getCapabilities, Image as TuiImage, setCapabilities, visibleWidth } from "@earendil-works/pi-tui";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -157,6 +157,11 @@ const rImg = await executeRead("c8", { path: "img.png" }, undefined, undefined, 
 const tImg = t(rImg);
 check("image read → vision description via fallback", tImg.includes("Described by commandcode/Qwen/Qwen3.7-Flash") && tImg.includes("A red circle"), tImg);
 check("image read drops image block for text-only model", rImg.content.every((c: any) => c.type === "text"));
+// Non-vision image read → the image + description are stashed for the TUI.
+const stash8 = getStashedImageRead("c8");
+check("non-vision image read stashes image for TUI", !!stash8 && stash8.mimeType === "image/png" && stash8.data.length > 0);
+check("non-vision image read stashes description", stash8?.description === "A red circle on a white background.");
+check("non-vision image read stashes describedBy", stash8?.describedBy === "commandcode/Qwen/Qwen3.7-Flash");
 
 // No fallback configured (file absent) + non-vision model → text-only note, no error
 const noFallbackCtx = { ...fakeCtx, modelRegistry: { ...fakeCtx.modelRegistry, find: () => undefined } };
@@ -167,6 +172,11 @@ check("no fallback → text-only, no error", t(rNoFb).includes("Read image file"
 const visionCtx = { ...fakeCtx, model: { input: ["text", "image"] } };
 const rVis = await executeRead("c10", { path: "img.png" }, undefined, undefined, visionCtx);
 check("vision model → image block preserved", rVis.content.some((c: any) => c.type === "image"));
+// Vision image read → stash exists (TUI can render it on non-image terminals)
+// but carries NO description (the model saw the image directly).
+const stash10 = getStashedImageRead("c10");
+check("vision image read stashes image for TUI", !!stash10 && stash10.mimeType === "image/png");
+check("vision image read stashes no description", stash10?.description === undefined);
 
 // Kill switch: no vision call, image dropped, no error
 process.env.PI_HASHLINE_VISION_DISABLE = "1";
@@ -202,6 +212,38 @@ const badFallbackCtx = {
 };
 const rBad = await executeRead("c13", { path: "img.png" }, undefined, undefined, badFallbackCtx);
 check("non-vision configured fallback → text-only, no error", rBad.content.every((c: any) => c.type === "text"), t(rBad));
+
+// --- TUI render of a stashed image read (non-vision session) ---
+// The stash from the earlier non-vision read (c8) is what renderResult consumes:
+// header + Image + description paragraph (lighter blue).
+const stashRender = getStashedImageRead("c8");
+check("render stash present", !!stashRender);
+if (stashRender) {
+	// No terminal image support → Image falls back to "[Image: ...]".
+	setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+	const img = new TuiImage(stashRender.data, stashRender.mimeType, { fallbackColor: (s) => s }, { maxWidthCells: 60 });
+	const fallbackLines = img.render(80);
+	check("no-caps image renders [Image: ...] fallback", fallbackLines.length === 1 && fallbackLines[0].includes("[Image:"), fallbackLines[0]);
+
+	// Description paragraph renders wrapped, lighter blue, full text.
+	const desc = descriptionParagraph("A red circle on a white background.", 30);
+	const descLines = desc.render(30);
+	check("description renders at least one line", descLines.length >= 1 && descLines.join(" ").includes("A red circle"));
+	check("description uses lighter blue", descLines[0].includes(LIGHTER_BLUE));
+
+	// Column stacks header + image + description in order.
+	const header = new RawText("✓ ↑ img.png");
+	const col = new Column([header, img, desc]);
+	const colLines = col.render(80);
+	check("column renders header first", colLines[0] === "✓ ↑ img.png");
+	check("column contains fallback image line", colLines.some((l) => l.includes("[Image:")));
+	check("column contains description", colLines.some((l) => l.includes("A red circle")));
+
+	// Kitty-capable terminal → Image emits the kitty graphics sequence.
+	setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+	const kittyLines = new TuiImage(stashRender.data, stashRender.mimeType, { fallbackColor: (s) => s }, { maxWidthCells: 60 }).render(80);
+	check("kitty image emits graphics sequence", kittyLines.some((l) => l.includes("\x1b_G") || l.includes("\x1b]1337;File=")), kittyLines.filter((l) => l.includes("\x1b")).slice(0, 1).join(""));
+}
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

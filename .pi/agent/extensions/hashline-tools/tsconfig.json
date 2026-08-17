@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"target": "ES2023",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		"types": []
+	},
+	"include": ["index.ts", "read.ts", "render.ts", "vision.ts", "format.ts", "store.ts", "edit.ts", "write.ts", "prune.ts", "bash-render.ts"],
+	"exclude": ["smoke.ts", "vision.test.ts", "prune.test.ts"]
+}

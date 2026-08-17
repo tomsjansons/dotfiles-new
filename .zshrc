@@ -115,6 +115,9 @@ secret-init() {
   export ZAI_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "ZAI_API_KEY" --output json | jq -r '.item.content.note')"
   export QWENCLOUD_TOKEN_PLAN_API_KEY="$(pass-cli item view --vault-name "Personal" --item-title "QWENCLOUD_TOKEN_PLAN_API_KEY" --output json | jq -r '.item.content.note')"
 
+  export HERMES_SUDO_PWD="$(pass-cli item view --vault-name "Personal" --item-title "HERMES_SUDO_PWD" --output json | jq -r '.item.content.extra_fields[] | select(.name == "pwd").content.Hidden')"
+  export PREVIEW_SUDO_PWD="$(pass-cli item view --vault-name "Personal" --item-title "PREVIEW_SUDO_PWD" --output json | jq -r '.item.content.extra_fields[] | select(.name == "pwd").content.Hidden')"
+
   local adv_prod_mysql_uri
   adv_prod_mysql_uri="$(pass-cli item view --vault-name "Personal" --item-title "ADV_PROD_MYSQL_URI" --output json | jq -r '.item.content.note')"
   local adv_prod_mysql_uri_pattern='^mysql://([^:]+):([^@]+)@([^:]+):([0-9]+)/([^?]+)(\?.*)?$'

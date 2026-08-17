@@ -18,7 +18,7 @@
  * into a plain Container — no green/pending background, no box padding lines.
  */
 
-import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -34,6 +34,25 @@ export const HANGING_INDENT = "        ";
  */
 export const DARK_BLUE = "\x1b[38;2;30;136;229m"; // #1e88e5 (material blue 600 — a touch lighter than 800)
 export const ANSI_RESET_FG = "\x1b[39m";
+
+/**
+ * Slightly lighter blue used for vision-fallback image descriptions in the
+ * read tool TUI (one step lighter than the dark-blue file path).
+ */
+export const LIGHTER_BLUE = "\x1b[38;2;66;165;245m"; // #42a5f5 (material blue 400)
+
+/**
+ * Colorize each line of `text` in the given truecolor foreground. Per-line so
+ * RawText's per-line truncation stays byte-faithful and colors can't leak
+ * between lines.
+ */
+export function colorizeLines(text: string, color: string): string {
+	if (!text) return text;
+	return text
+		.split("\n")
+		.map((line) => `${color}${line}${ANSI_RESET_FG}`)
+		.join("\n");
+}
 
 /**
  * Wrap each line of `text` in dark blue (escape at line start, reset at end).
@@ -332,4 +351,37 @@ export class RawText implements Component {
 	render(width: number): string[] {
 		return this.#text === "" ? [] : this.#text.split("\n").map((line) => truncateToWidth(line, width));
 	}
+}
+
+/**
+ * Stack components vertically, in order, with no padding or sizing tricks.
+ * Used by the read renderResult to compose [header] [image] [description]
+ * when the image must be rendered manually (non-vision session).
+ */
+export class Column implements Component {
+	#children: Component[];
+	constructor(children: Component[]) {
+		this.#children = children;
+	}
+	invalidate() {
+		for (const child of this.#children) child.invalidate();
+	}
+	render(width: number): string[] {
+		const lines: string[] = [];
+		for (const child of this.#children) {
+			lines.push(...child.render(width));
+		}
+		return lines;
+	}
+}
+
+/**
+ * Render a full paragraph of `text` (wrapped to `width`) in `LIGHTER_BLUE`.
+ * Multi-line input keeps its line breaks; each line is wrapped independently
+ * (a blank line separates paragraphs). Returns a RawText (empty when the
+ * description is empty).
+ */
+export function descriptionParagraph(text: string, width: number): Component {
+	const lines = text.split("\n").flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
+	return new RawText(colorizeLines(lines.join("\n"), LIGHTER_BLUE));
 }

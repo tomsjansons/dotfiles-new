@@ -15,13 +15,14 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getCapabilities, getImageDimensions, imageFallback, Image, type Component } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { executeBash, pendingBashComponent, settledBashComponent } from "./bash-render";
 import { executeEdit } from "./edit";
 import { registerPruner } from "./prune";
-import { executeRead } from "./read";
+import { executeRead, getStashedImageRead } from "./read";
 import { executeWrite } from "./write";
-import { parseHeaderLine, pendingComponent, settledComponent, shouldShowErrorDetail } from "./render";
+import { Column, descriptionParagraph, parseHeaderLine, pendingComponent, RawText, settledComponent, shouldShowErrorDetail } from "./render";
 
 const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
@@ -68,9 +69,39 @@ export default function (pi: ExtensionAPI) {
 			renderResult(result, { expanded, isPartial }, theme, ctx) {
 				const content = result.content[0];
 				const fallbackPath = (ctx.args?.path ?? ctx.args?.filePath ?? "").replace(/^@/, "");
+
+				// Image result the session model saw directly (vision model): the
+				// image block stays in content, and ToolExecutionComponent renders
+				// it below the header on image-capable terminals. When the terminal
+				// can't render images (kitty/iterm2 absent), core skips content
+				// images entirely — render the standard `[Image: ...]` fallback so
+				// the read still shows what it read.
 				if (content?.type === "image") {
-					return settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
+					const header = settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
+					if (getCapabilities().images && ctx.showImages) {
+						return header;
+					}
+					const dims =
+						content.data && content.mimeType ? (getImageDimensions(content.data, content.mimeType) ?? undefined) : undefined;
+					return new Column([header, new RawText(imageFallback(content.mimeType, dims))]);
 				}
+
+				// Non-vision session: the image block was dropped from content, but
+				// executeRead stashed it (plus the vision-fallback description) for
+				// TUI rendering. Show header + image + description. On partial
+				// (streaming) updates just settle the header like the text path —
+				// reads don't stream, but stay consistent if one ever does.
+				const stashed = getStashedImageRead(ctx.toolCallId);
+				if (stashed && !isPartial) {
+					const header = settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
+					const image = new Image(stashed.data, stashed.mimeType, { fallbackColor: (s) => theme.fg("toolOutput", s) }, { maxWidthCells: 60 });
+					const parts: Component[] = [header, image];
+					if (stashed.description) {
+						parts.push(descriptionParagraph(stashed.description, 120));
+					}
+					return new Column(parts);
+				}
+
 				if (content?.type !== "text") {
 					return settledComponent(theme, "read", "", "", fallbackPath || "(no text)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
 				}

@@ -59,16 +59,64 @@ function note(text: string) {
 }
 
 /**
+ * Image reads stashed for the TUI renderer.
+ *
+ * The model-facing tool result and the TUI render share the same `content`
+ * array. For a non-vision session model the image block must be dropped from
+ * `content` (the provider rejects image content in tool results), which would
+ * also hide the image from the TUI (ToolExecutionComponent renders images from
+ * content image blocks). We therefore stash the raw image alongside the
+ * description so `renderResult` can still show the image and the description
+ * in the TUI for non-vision sessions.
+ */
+export interface StashedImageRead {
+	data: string;
+	mimeType: string;
+	/** Description produced by the vision fallback (non-vision sessions only). */
+	description?: string;
+	/** Fallback model that described the image, e.g. "commandcode/Qwen/Qwen3.7-Flash". */
+	describedBy?: string;
+}
+
+const stashedImageReads = new Map<string, StashedImageRead>();
+
+/** Bounded: at most this many image reads are kept for TUI rendering. */
+const MAX_STASHED_IMAGE_READS = 32;
+
+/** Stash the image (and optional description) for the given tool call. */
+export function stashImageRead(toolCallId: string, entry: StashedImageRead): void {
+	stashedImageReads.set(toolCallId, entry);
+	if (stashedImageReads.size > MAX_STASHED_IMAGE_READS) {
+		const eldest = stashedImageReads.keys().next().value;
+		if (eldest !== undefined) stashedImageReads.delete(eldest);
+	}
+}
+
+/** Look up the stashed image for a tool call (renderResult + tests). */
+export function getStashedImageRead(toolCallId: string): StashedImageRead | undefined {
+	return stashedImageReads.get(toolCallId);
+}
+
+/** Drop the stash (abort/error paths). */
+export function clearStashedImageRead(toolCallId: string): void {
+	stashedImageReads.delete(toolCallId);
+}
+
+/**
  * Vision-capable session model → result as-is (today's behavior).
  * Non-vision model + image result → describe via the configured fallback
  * model, or drop the image block with a note when no fallback is usable.
  * Never hard-errors: a failed fallback degrades to text-only + reason.
+ *
+ * The image itself (and, for non-vision sessions, the description) is stashed
+ * for the TUI renderer under `toolCallId`; the model-facing content is what
+ * the provider actually receives.
  */
-async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof createReadToolDefinition>["execute"]>>, ctx: ExtensionContext) {
-	const model = ctx.model;
-	if (isVisionCapable(model)) {
-		return result; // session model sees images: behave exactly as today
-	}
+async function maybeVisionFallback(
+	result: Awaited<ReturnType<ReturnType<typeof createReadToolDefinition>["execute"]>>,
+	ctx: ExtensionContext,
+	toolCallId: string,
+) {
 	const imageBlock = result.content.find((c) => c.type === "image");
 	if (!imageBlock) {
 		return result; // not an image result; leave as-is
@@ -76,8 +124,20 @@ async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof 
 	const textBlock = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 	const textPart = textBlock?.text ?? `Read image file [${imageBlock.mimeType}]`;
 
+	// Always stash the image so the TUI can render it, regardless of whether
+	// the session model is vision-capable (the model-facing content below
+	// decides what the provider sees).
+	const stash: StashedImageRead = { data: imageBlock.data, mimeType: imageBlock.mimeType };
+
+	const model = ctx.model;
+	if (isVisionCapable(model)) {
+		stashImageRead(toolCallId, stash);
+		return result; // session model sees images: behave exactly as today
+	}
+
 	if (process.env[VISION_KILL_SWITCH]) {
 		// Kill switch: no vision call. Drop the image block, keep the text note.
+		stashImageRead(toolCallId, stash);
 		return { ...result, content: [{ type: "text" as const, text: textPart }] };
 	}
 
@@ -85,6 +145,7 @@ async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof 
 	if (!visionModel) {
 		// No usable fallback (unset config, model missing, no auth, or the
 		// configured model isn't vision-capable): drop the image block.
+		stashImageRead(toolCallId, stash);
 		return { ...result, content: [{ type: "text" as const, text: textPart }] };
 	}
 
@@ -93,6 +154,7 @@ async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof 
 		description = await describeImage(imageBlock, visionModel, ctx);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
+		stashImageRead(toolCallId, stash);
 		return {
 			...result,
 			content: [
@@ -100,6 +162,9 @@ async function maybeVisionFallback(result: Awaited<ReturnType<ReturnType<typeof 
 			],
 		};
 	}
+	stash.description = description;
+	stash.describedBy = `${visionModel.provider}/${visionModel.id}`;
+	stashImageRead(toolCallId, stash);
 	return {
 		...result,
 		content: [
@@ -156,7 +221,11 @@ export async function executeRead(
 			onUpdate as never,
 			ctx,
 		);
-		return maybeVisionFallback(result, ctx);
+		// Non-image results from the delegate (e.g. undecodable image → text
+		// note) don't stash; only genuine image blocks do.
+		const stashed = maybeVisionFallback(result, ctx, toolCallId);
+		if (signal?.aborted) clearStashedImageRead(toolCallId);
+		return stashed;
 	}
 	if (buf.subarray(0, 8192).includes(0)) {
 		return note(`[Binary file: ${displayPath(absolutePath, ctx.cwd)} (${st.size} bytes). Not displayed]`);
