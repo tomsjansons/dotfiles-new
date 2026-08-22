@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeFileHash, formatHeader, stripEchoedPrefixes, unwrapHeaderPath } from "./format";
+import { computeFileHash, formatHeader, stripEchoedPrefixes, tagOnTagNote, unwrapHeaderPath } from "./format";
 import { SnapshotStore } from "./store";
 import { executeRead, getStashedImageRead } from "./read";
 import { executeEdit } from "./edit";
@@ -22,6 +22,21 @@ check("hash ignores CRLF + trailing ws", computeFileHash("a \r\nb\t\n") === comp
 check("hash 4 upper hex", /^[0-9A-F]{4}$/.test(computeFileHash("x")));
 check("unwrap header", unwrapHeaderPath("[src/a.ts#1A2B]").tag === "1A2B" && unwrapHeaderPath("[src/a.ts#1A2B]").path === "src/a.ts");
 check("unwrap plain", unwrapHeaderPath("src/a.ts").tag === undefined);
+
+// shared parser: bare + bracketed, relative + absolute, case-insensitive tag
+check("unwrap bare tag (no brackets)", unwrapHeaderPath("src/a.ts#1A2B").tag === "1A2B" && unwrapHeaderPath("src/a.ts#1A2B").path === "src/a.ts");
+check("unwrap absolute bare, lowercase tag", unwrapHeaderPath("/abs/a.ts#1a2b").tag === "1A2B" && unwrapHeaderPath("/abs/a.ts#1a2b").path === "/abs/a.ts");
+check("unwrap splits at last # (path contains #)", unwrapHeaderPath("foo#bar#AB12").path === "foo#bar" && unwrapHeaderPath("foo#bar#AB12").tag === "AB12");
+check("unwrap bracketed #-path", unwrapHeaderPath("[foo#bar#AB12]").path === "foo#bar" && unwrapHeaderPath("[foo#bar#AB12]").tag === "AB12");
+check("malformed non-hex tag", !!unwrapHeaderPath("[src/a.ts#ZZZZ]").malformed && unwrapHeaderPath("[src/a.ts#ZZZZ]").path === undefined);
+check("malformed short tag", !!unwrapHeaderPath("src/a.ts#1A2").malformed);
+check("malformed long tag", !!unwrapHeaderPath("src/a.ts#1A2B3").malformed);
+check("malformed unbalanced open bracket", !!unwrapHeaderPath("[src/a.ts#1A2B").malformed);
+check("malformed unbalanced close bracket", !!unwrapHeaderPath("src/a.ts#1A2B]").malformed);
+check("malformed missing path", !!unwrapHeaderPath("#1A2B").malformed);
+check("dotted # frag stays a plain path", unwrapHeaderPath("notes#1.md").path === "notes#1.md" && unwrapHeaderPath("notes#1.md").tag === undefined);
+check("tag-on-tag note fires", !!tagOnTagNote("foo#AB12"));
+check("tag-on-tag note quiet on clean path", tagOnTagNote("foo.ts") === undefined);
 
 const echo = stripEchoedPrefixes("[f.ts#1A2B]\n1:hello\n2:world");
 check("strip echoed read output", echo.stripped && echo.text === "hello\nworld");
@@ -117,9 +132,53 @@ writeFileSync(join(dir, "untracked.ts"), "old\n");
 const w4 = await executeWrite("w4", { path: "untracked.ts", content: "new\n" }, undefined, undefined, ctx);
 check("untracked overwrite allowed with note", t(w4).includes("never read this session"), t(w4));
 
+// --- write tag validation (fail closed) ---
+writeFileSync(join(dir, "tagged.ts"), "v1\n");
+await executeRead("c13", { path: "tagged.ts" }, undefined, undefined, ctx);
+const v1Tag = computeFileHash("v1\n");
+const w5 = await executeWrite("w5", { path: `[tagged.ts#${v1Tag}]`, content: "v2\n" }, undefined, undefined, ctx);
+check("write with correct tag proceeds", t(w5).startsWith(`[tagged.ts#${computeFileHash("v2\n")}]`), t(w5));
+const bogusTag = ["0000", "1111", "2222"].find((x) => x !== v1Tag && x !== computeFileHash("v2\n"))!;
+try {
+	await executeWrite("w6", { path: `[tagged.ts#${bogusTag}]`, content: "v3\n" }, undefined, undefined, ctx);
+	check("write refuses unknown tag", false);
+} catch (err: any) {
+	check("write refuses unknown tag", err.message.includes("not tracked"), err.message);
+}
+try {
+	await executeWrite("w7", { path: `[tagged.ts#${v1Tag}]`, content: "v3\n" }, undefined, undefined, ctx);
+	check("write refuses stale tag (drift vs passed tag)", false);
+} catch (err: any) {
+	check("write refuses stale tag (drift vs passed tag)", err.message.includes("changed on disk") && err.message.includes("plain path"), err.message);
+}
+try {
+	await executeWrite("w8", { path: "[tagged.ts#ZZZZ]", content: "v3\n" }, undefined, undefined, ctx);
+	check("write refuses malformed tag-like path", false);
+} catch (err: any) {
+	check("write refuses malformed tag-like path", err.message.includes("not a valid tag"), err.message);
+}
+check("no stray literal file created", !existsSync(join(dir, "[tagged.ts#ZZZZ]")) && readdirSync(dir).every((f) => !f.includes("ZZZZ")));
+
 // untagged edit skips validation
 const ok2 = await executeEdit("e4", { path: "foo.ts", edits: [{ oldText: "line30", newText: "LINE30" }] }, undefined, undefined, ctx);
 check("untagged edit allowed", !!ok2);
+
+// bare path#TAG (no brackets) must validate too — the complaint's failing form
+const bareTag = computeFileHash(readFileSync(join(dir, "foo.ts"), "utf8"));
+const okBare = await executeEdit("e5", { path: `foo.ts#${bareTag}`, edits: [{ oldText: "line9", newText: "LINE9" }] }, undefined, undefined, ctx);
+check("edit with bare path#TAG validates", JSON.stringify(okBare.content).includes("foo.ts#"));
+try {
+	await executeEdit("e6", { path: "foo.ts#XYZ1", edits: [{ oldText: "line10", newText: "x" }] }, undefined, undefined, ctx);
+	check("edit malformed tag → clear error, not ENOENT", false);
+} catch (err: any) {
+	check("edit malformed tag → clear error, not ENOENT", err.message.includes("not a valid tag") && !err.message.includes("ENOENT"), err.message);
+}
+
+// tag-on-tag: a literal '#'-named file gets a two-tag header + warning note
+const w9 = await executeWrite("w9", { path: "odd#AB12#AB12", content: "odd\n" }, undefined, undefined, ctx);
+check("tag-on-tag write warns in response", t(w9).includes("two tags") && t(w9).includes("odd#AB12"), t(w9));
+const rOdd = await executeRead("c14", { path: "[odd#AB12#AB12]" }, undefined, undefined, ctx);
+check("read round-trips a #-path header", t(rOdd).startsWith("[odd#AB12#") && t(rOdd).includes("two tags"), t(rOdd));
 
 // --- vision fallback ---
 import { describeImage, isVisionCapable, loadVisionFallbackConfig, resolveVisionFallbackModel } from "./vision";
@@ -172,11 +231,10 @@ check("no fallback → text-only, no error", t(rNoFb).includes("Read image file"
 const visionCtx = { ...fakeCtx, model: { input: ["text", "image"] } };
 const rVis = await executeRead("c10", { path: "img.png" }, undefined, undefined, visionCtx);
 check("vision model → image block preserved", rVis.content.some((c: any) => c.type === "image"));
-// Vision image read → stash exists (TUI can render it on non-image terminals)
-// but carries NO description (the model saw the image directly).
+// Vision image read → NO stash: the image block stays in content and core
+// ToolExecutionComponent renders it (a stash would double the TUI preview).
 const stash10 = getStashedImageRead("c10");
-check("vision image read stashes image for TUI", !!stash10 && stash10.mimeType === "image/png");
-check("vision image read stashes no description", stash10?.description === undefined);
+check("vision image read leaves no stash", stash10 === undefined);
 
 // Kill switch: no vision call, image dropped, no error
 process.env.PI_HASHLINE_VISION_DISABLE = "1";

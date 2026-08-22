@@ -147,7 +147,7 @@ export const ACTION_GLYPH = {
 
 export type ActionKind = keyof typeof ACTION_GLYPH;
 
-const HEADER_RE = /^\[([^\]\#\r\n]+)#([0-9A-Fa-f]{4})\]/;
+const HEADER_RE = /^\[(.+)#([0-9A-Fa-f]{4})\]/; // greedy base: split at the LAST '#' (paths may contain '#' — cf. tag-on-tag headers)
 
 /** Pull `{ path, tag }` out of the model-visible `[path#TAG]` header line, if present. */
 export function parseHeaderLine(text: string): { path: string; tag?: string } {

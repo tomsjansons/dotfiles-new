@@ -11,12 +11,16 @@
  *   bracketed notes with precomputed resume offsets (no red tool failures).
  * - Images and oversized/binary files delegate to the built-in read unchanged.
  * - Device files that can never EOF are refused before any I/O.
+ * - Accepts [path#TAG]/path#TAG as the path (tag advisory; a fresh tag is
+ *   minted from live content). Malformed tag-like paths get a guidance note
+ *   instead of a bare ENOENT; tagged paths that don't resolve fall back to
+ *   the literal '#' filename.
  */
 
 import { createReadToolDefinition, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { computeFileHash, displayPath, formatHeader } from "./format";
+import { computeFileHash, displayPath, formatHeader, tagOnTagNote, unwrapHeaderPath } from "./format";
 import { snapshots } from "./store";
 import { describeImage, isVisionCapable, resolveVisionFallbackModel } from "./vision";
 
@@ -108,9 +112,9 @@ export function clearStashedImageRead(toolCallId: string): void {
  * model, or drop the image block with a note when no fallback is usable.
  * Never hard-errors: a failed fallback degrades to text-only + reason.
  *
- * The image itself (and, for non-vision sessions, the description) is stashed
- * for the TUI renderer under `toolCallId`; the model-facing content is what
- * the provider actually receives.
+ * The image itself is only stashed for non-vision sessions (where the image
+ * block is dropped from content); when it stays in content, core renders it
+ * directly and a stash would double the TUI preview.
  */
 async function maybeVisionFallback(
 	result: Awaited<ReturnType<ReturnType<typeof createReadToolDefinition>["execute"]>>,
@@ -124,14 +128,13 @@ async function maybeVisionFallback(
 	const textBlock = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
 	const textPart = textBlock?.text ?? `Read image file [${imageBlock.mimeType}]`;
 
-	// Always stash the image so the TUI can render it, regardless of whether
-	// the session model is vision-capable (the model-facing content below
-	// decides what the provider sees).
+	// Only stash when the image block is dropped from content (the non-vision
+	// paths below). When it stays in content, core ToolExecutionComponent
+	// renders it below the header — a stash would double the TUI preview.
 	const stash: StashedImageRead = { data: imageBlock.data, mimeType: imageBlock.mimeType };
 
 	const model = ctx.model;
 	if (isVisionCapable(model)) {
-		stashImageRead(toolCallId, stash);
 		return result; // session model sees images: behave exactly as today
 	}
 
@@ -184,7 +187,16 @@ export async function executeRead(
 	ctx: ExtensionContext,
 ) {
 	const rawPath = (params.path ?? params.filePath ?? "").replace(/^@/, "");
-	const absolutePath = resolve(ctx.cwd, rawPath);
+	// Shared parser: [path#TAG] and bare path#TAG both unwrap; the tag is
+	// advisory for read (live content is observed, a fresh tag minted).
+	const unwrapped = unwrapHeaderPath(rawPath);
+	if (unwrapped.malformed) {
+		return note(
+			`[Refused: ${JSON.stringify(rawPath)} ${unwrapped.malformed}. ` +
+				`Pass the plain path, or copy the [path#TAG] header verbatim.]`,
+		);
+	}
+	let absolutePath = resolve(ctx.cwd, unwrapped.path ?? rawPath);
 	const delegate = createReadToolDefinition(ctx.cwd);
 
 	if (BLOCKED_DEVICE_RE.test(absolutePath)) {
@@ -201,10 +213,25 @@ export async function executeRead(
 		return note(`[Invalid limit ${JSON.stringify(params.limit)}: expected a positive integer]`);
 	}
 
-	let st;
+	let st: Awaited<ReturnType<typeof stat>> | undefined;
 	try {
 		st = await stat(absolutePath);
 	} catch {
+		st = undefined;
+	}
+	if (!st && unwrapped.path !== rawPath) {
+		// A tagged path that doesn't resolve may name a literal '#'-file.
+		try {
+			const literal = await stat(resolve(ctx.cwd, rawPath));
+			if (literal.isFile()) {
+				st = literal;
+				absolutePath = resolve(ctx.cwd, rawPath);
+			}
+		} catch {
+			/* fall through to the built-in's not-found handling */
+		}
+	}
+	if (!st) {
 		// Not-found handling stays with the built-in (its error text is what models expect).
 		return delegate.execute(toolCallId, { path: rawPath, offset, limit } as never, signal, onUpdate as never, ctx);
 	}
@@ -239,7 +266,10 @@ export async function executeRead(
 
 	if (text.length === 0) {
 		const tag = snapshots.record(absolutePath, text, []);
-		return note(`${formatHeader(shown, tag)}\n[${shown} is empty (0 lines)]`);
+		const parts = [formatHeader(shown, tag), `[${shown} is empty (0 lines)]`];
+		const tagOnTag = tagOnTagNote(shown);
+		if (tagOnTag) parts.push(tagOnTag);
+		return note(parts.join("\n"));
 	}
 
 	const startLine = offset ? offset - 1 : 0;
@@ -308,5 +338,7 @@ export async function executeRead(
 			`[Showing lines ${firstDisplay}-${lastDisplay} of ${totalLines}${truncatedBy === "bytes" ? " (byte limit)" : ""}. Use offset=${nextOffset} to continue.]`,
 		);
 	}
+	const tagOnTag = tagOnTagNote(shown);
+	if (tagOnTag) parts.push(tagOnTag);
 	return note(parts.join("\n"));
 }

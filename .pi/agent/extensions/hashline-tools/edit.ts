@@ -1,7 +1,9 @@
 /**
  * edit override: hashline validation around pi's oldText/newText edit.
  *
- * When the path carries a `[path#TAG]` header (copied from read output):
+ * The path may carry a `[path#TAG]` header or a bare `path#TAG` suffix (shared
+ * parser); tag-like paths that don't parse are refused with format guidance
+ * instead of a bare ENOENT. When a tag is present:
  * - unknown tag      → deny: snapshot expired/evicted, re-read for a fresh tag
  * - tag ≠ live file  → deny: out-of-band drift; re-read for a fresh tag
  *   (v1: no anchor remapping — deny is cheap and always correct)
@@ -24,7 +26,7 @@
 import { createEditTool } from "@earendil-works/pi-coding-agent";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { computeFileHash, displayPath, formatHeader, unwrapHeaderPath } from "./format";
+import { computeFileHash, displayPath, formatHeader, tagOnTagNote, unwrapHeaderPath } from "./format";
 import { snapshots } from "./store";
 
 const MAX_GUARD_BYTES = 8 * 1024 * 1024;
@@ -48,7 +50,14 @@ export async function executeEdit(
 	ctx: { cwd: string },
 ) {
 	const unwrapped = unwrapHeaderPath(params.path.replace(/^@/, ""));
-	const absolutePath = resolve(ctx.cwd, unwrapped.path);
+	if (unwrapped.malformed || !unwrapped.path) {
+		throw new Error(
+			`Edit refused: ${JSON.stringify(params.path)} ${unwrapped.malformed ?? "could not be parsed"}. ` +
+				`Pass the plain path, or copy the [path#TAG] header from read output verbatim (brackets optional).`,
+		);
+	}
+	const targetPath: string = unwrapped.path;
+	const absolutePath = resolve(ctx.cwd, targetPath);
 	const shown = displayPath(absolutePath, ctx.cwd);
 
 	if (unwrapped.tag) {
@@ -103,7 +112,12 @@ export async function executeEdit(
 			const after = await readFile(absolutePath, "utf8");
 			const tag = snapshots.record(absolutePath, after);
 			const first = result.content.find((c): c is { type: "text"; text: string } => c.type === "text");
-			if (first) first.text = `${formatHeader(shown, tag)}\n${first.text}`;
+			if (first) {
+				let text = `${formatHeader(shown, tag)}\n${first.text}`;
+				const tagOnTag = tagOnTagNote(shown);
+				if (tagOnTag) text = `${text}\n${tagOnTag}`;
+				first.text = text;
+			}
 		}
 	} catch {
 		/* snapshot bookkeeping must never fail an applied edit */

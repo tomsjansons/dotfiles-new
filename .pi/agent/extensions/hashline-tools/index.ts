@@ -4,8 +4,10 @@
  *
  * read  → emits `[path#TAG]` header + `N:` line prefixes; records a whole-file
  *         snapshot with seen-line provenance; self-expiring dedup stub.
- * write → unwraps `[path#TAG]` targets, strict-strips echoed prefixes, denies
- *         overwrite of out-of-band-drifted files, returns a fresh tag.
+ * write → unwraps `[path#TAG]`/bare `path#TAG` targets (malformed tag-like
+ *         paths refused, never literal-written), validates a passed tag
+ *         fail-closed, strict-strips echoed prefixes, denies overwrite of
+ *         out-of-band-drifted files, returns a fresh tag.
  * edit  → validates the tag against the store (deny on stale/expired), enforces
  *         seen-lines (deny blind edits with the exact offset that fixes them),
  *         returns a fresh tag post-commit.
@@ -71,19 +73,23 @@ export default function (pi: ExtensionAPI) {
 				const fallbackPath = (ctx.args?.path ?? ctx.args?.filePath ?? "").replace(/^@/, "");
 
 				// Image result the session model saw directly (vision model): the
-				// image block stays in content, and ToolExecutionComponent renders
-				// it below the header on image-capable terminals. When the terminal
-				// can't render images (kitty/iterm2 absent), core skips content
-				// images entirely — render the standard `[Image: ...]` fallback so
-				// the read still shows what it read.
-				if (content?.type === "image") {
+				// image block stays in content (built-in read returns [text, image]),
+				// and ToolExecutionComponent renders it below the header on
+				// image-capable terminals. When the terminal can't render images
+				// (kitty/iterm2 absent), core skips content images entirely — render
+				// the standard `[Image: ...]` fallback so the read still shows what
+				// it read.
+				const imageBlock = result.content.find(
+					(c): c is { type: "image"; data: string; mimeType: string } => c.type === "image",
+				);
+				if (imageBlock) {
 					const header = settledComponent(theme, "read", "", "", fallbackPath || "(image)", "ok", 120, undefined, ctx.toolCallId, undefined, isPartial, ctx.invalidate);
 					if (getCapabilities().images && ctx.showImages) {
 						return header;
 					}
 					const dims =
-						content.data && content.mimeType ? (getImageDimensions(content.data, content.mimeType) ?? undefined) : undefined;
-					return new Column([header, new RawText(imageFallback(content.mimeType, dims))]);
+						imageBlock.data && imageBlock.mimeType ? (getImageDimensions(imageBlock.data, imageBlock.mimeType) ?? undefined) : undefined;
+					return new Column([header, new RawText(imageFallback(imageBlock.mimeType, dims))]);
 				}
 
 				// Non-vision session: the image block was dropped from content, but
