@@ -42,6 +42,13 @@ export const ANSI_RESET_FG = "\x1b[39m";
 export const LIGHTER_BLUE = "\x1b[38;2;66;165;245m"; // #42a5f5 (material blue 400)
 
 /**
+ * Light purple truecolor foreground used for expanded (extended view) tool
+ * output bodies: read/write/edit result text and bash stdout/stderr. Truecolor
+ * (38;2) like DARK_BLUE so the shade is palette-independent.
+ */
+export const LIGHT_PURPLE = "\x1b[38;2;206;147;216m"; // #ce93d8 (material purple 200)
+
+/**
  * Colorize each line of `text` in the given truecolor foreground. Per-line so
  * RawText's per-line truncation stays byte-faithful and colors can't leak
  * between lines.
@@ -310,7 +317,9 @@ export function settledComponent(
 		// indented red detail so it renders once below it.
 		return new RawText(formatErrorDetail(theme, errorDetail));
 	}
-	return new RawText(body ?? "");
+	// Expanded tool output renders in light purple (per-line so RawText's
+	// truncation stays byte-faithful and colors can't leak between lines).
+	return new RawText(body ? colorizeLines(body, LIGHT_PURPLE) : "");
 }
 
 /**

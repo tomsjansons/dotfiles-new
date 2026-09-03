@@ -39,7 +39,9 @@ import type { Component } from "@earendil-works/pi-tui";
 import {
 	animateSpinner,
 	colorizeCommand,
+	colorizeLines,
 	HANGING_INDENT,
+	LIGHT_PURPLE,
 	RawText,
 	formatErrorDetail,
 	nextSpinnerFrame,
@@ -425,7 +427,8 @@ export function settledBashComponent(
 	if (continuations) bodyLines.push(continuations);
 	if (expanded && outputText) {
 		if (bodyLines.length > 0) bodyLines.push("");
-		bodyLines.push(outputText);
+		// Expanded tool output renders in light purple (per-line, see render.ts).
+		bodyLines.push(colorizeLines(outputText, LIGHT_PURPLE));
 	}
 	const truncation = result.details?.truncation as
 		| { truncated?: boolean; outputLines?: number; totalLines?: number; truncatedBy?: string; maxBytes?: number }

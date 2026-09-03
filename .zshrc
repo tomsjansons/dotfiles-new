@@ -99,103 +99,15 @@ ob-edit() {
     $EDITOR
   }
 
-# --- shared secret loaders (vault: Personal) -------------------------------
-
-# sec-export-note <ENV_VAR>: export a note-type item whose title == <ENV_VAR>
-sec-export-note() {
-  local name="$1"
-  export "$name=$(pass-cli item view --vault-name "Personal" --item-title "$name" --output json | jq -r '.item.content.note')"
-  echo "$name"
-}
-
-# sec-export-hidden <ENV_VAR> <field>: export a hidden extra field as <ENV_VAR>
-sec-export-hidden() {
-  local name="$1" field="$2"
-  export "$name=$(pass-cli item view --vault-name "Personal" --item-title "$name" --output json | jq -r ".item.content.extra_fields[] | select(.name == \"$field\").content.Hidden")"
-  echo "$name"
-}
-
-# --- one function per secret ------------------------------------------------
-
-# sec-ssh-agent: start an ssh-agent only if none is reachable.
-# ssh-add exits 2 when it cannot contact an agent; 0/1 mean one is alive.
-sec-ssh-agent() {
-  ssh-add -l >/dev/null 2>&1
-  local agent_status=$?
-  (( agent_status == 2 )) && eval "$(ssh-agent -s)"
-}
-
-sec-ssh-l13() {
-  sec-ssh-agent
-  pass-cli item view --vault-name "Personal" --item-title "lenovo l13 private key" --output json | jq -r '.item.content.note' | ssh-add -
-}
-
-sec-advangrid-ssh() {
-  sec-ssh-agent
-  pass-cli item view --vault-name "Personal" --item-title "advangrid-ssh" --output json | jq -r '.item.content.note' | ssh-add -
-}
-
-sec-advangrid-pandora() {
-  sec-ssh-agent
-  pass-cli item view --vault-name "Personal" --item-title "advangrid pandora-admin" --output json | jq -r '.item.content.extra_fields[] | select(.name == "private").content.Text' | ssh-add -
-}
-
-sec-opencode-zen() { sec-export-note OPENCODE_ZEN_API_KEY }
-
-sec-tavily()       { sec-export-note TAVILY_API_KEY }
-
-sec-openrouter()   { sec-export-note OPENROUTER_API_KEY }
-
-sec-minimax()      { sec-export-note MINIMAX_API_KEY }
-
-sec-zai()          { sec-export-note ZAI_API_KEY }
-
-sec-qwencloud()    { sec-export-note QWENCLOUD_TOKEN_PLAN_API_KEY }
-
-sec-hermes-sudo-pwd()  { sec-export-hidden HERMES_SUDO_PWD pwd }
-
-sec-preview-sudo-pwd() { sec-export-hidden PREVIEW_SUDO_PWD pwd }
-
-sec-adv-prod-mysql() {
-  local adv_prod_mysql_uri
-  adv_prod_mysql_uri="$(pass-cli item view --vault-name "Personal" --item-title "ADV_PROD_MYSQL_URI" --output json | jq -r '.item.content.note')"
-  local adv_prod_mysql_uri_pattern='^mysql://([^:]+):([^@]+)@([^:]+):([0-9]+)/([^?]+)(\?.*)?$'
-
-  if [[ "$adv_prod_mysql_uri" =~ $adv_prod_mysql_uri_pattern ]]; then
-    export ADV_PROD_MYSQL_USER="${match[1]}"
-    export ADV_PROD_MYSQL_PWD="${match[2]}"
-    export ADV_PROD_MYSQL_HOST="${match[3]}"
-    export ADV_PROD_MYSQL_PORT="${match[4]}"
-    echo "ADV_PROD_MYSQL"
-  else
-    print -u2 "Failed to parse ADV_PROD_MYSQL_URI"
-    return 1
-  fi
-}
-
-# --- load everything --------------------------------------------------------
-
-secret-init() {
-  pass-cli login
-
-  sec-ssh-agent
-
-  sec-ssh-l13
-  sec-advangrid-ssh
-  sec-advangrid-pandora
-  sec-opencode-zen
-  sec-tavily
-  sec-openrouter
-  sec-minimax
-  sec-zai
-  sec-qwencloud
-  sec-hermes-sudo-pwd
-  sec-preview-sudo-pwd
-  sec-adv-prod-mysql
-}
+# --- secrets (pass-cli + kernel keyring cache) ------------------------------
+# API keys: every shell, cached in kernel keyring (~50ms steady state).
+# SSH keys: per-session opt-in via sec-ssh-init (below).
+# See .zsh-secrets.zsh header for the full design.
+[[ -r "$HOME/.dotfiles/.zsh-secrets.zsh" ]] && source "$HOME/.dotfiles/.zsh-secrets.zsh"
+sec-api-init
 
 z() {
-  secret-init
+  sec-ssh-init
   zellij "$@"
 }
 
