@@ -14,7 +14,7 @@
 // spawn-at-startup "bash" "-c" "\"xwayland-satellite || libnotify --wait --urgency critical xwayland-crashed\""
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swaybg.sh"
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swayidle.sh"
-spawn-at-startup "qs" "-c" "noctalia-shell"
+spawn-at-startup "noctalia"
 
 debug {
   // Allows notification actions and window activation from Noctalia.
@@ -178,6 +178,12 @@ output "Microstep MSI MP245 PC1M034700322" {
 	position x=3440 y=-1080
 }
 output "Microstep MSI MP2412 BA9H424201903" {
+	mode "1920x1080@60"
+	scale 1.0
+	transform "normal"
+	position x=3440 y=-1080
+}
+output "Dell Inc. DELL P2314H J8J3157KBMAL" {
 	mode "1920x1080@60"
 	scale 1.0
 	transform "normal"
@@ -397,7 +403,7 @@ window-rule {
 
 // Example: block out two password managers from screen capture.
 // (This example rule is commented out with a "/-" in front.)
-/-window-rule {
+window-rule {
     match app-id=r#"^org\.keepassxc\.KeePassXC$"#
     match app-id=r#"^org\.gnome\.World\.Secrets$"#
 
@@ -431,8 +437,8 @@ binds {
   Mod+Q { spawn "ghostty"; }
   Mod+W { spawn "nautilus"; }
   Mod+Shift+W { spawn "/home/toms/.config/system_resources/float-yazi.sh"; }
-  Mod+R { spawn-sh "qs -c noctalia-shell ipc call launcher toggle"; }
-  Mod+B { spawn-sh "qs -c noctalia-shell ipc call sessionMenu toggle"; }
+  Mod+R { spawn-sh "noctalia msg panel-toggle launcher"; }
+  Mod+B { spawn-sh "noctalia msg panel-toggle session"; }
 
   // Example volume keys mappings for PipeWire & WirePlumber.
   // The allow-when-locked=true property makes them work even when the session is locked.
@@ -654,5 +660,6 @@ binds {
   Mod+Shift+P { power-off-monitors; }
 }
 
-include "./noctalia.kdl"
 
+
+include "noctalia.kdl"

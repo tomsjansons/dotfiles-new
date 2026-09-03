@@ -191,6 +191,10 @@ close_pane = "alt+c"
 # Background notification popup delivery
 agent_panel_sort = "spaces"
 
+[ui.sidebar.spaces]
+rows = [
+  ["state_icon", "workspace", "branch", "git_status"]
+]
 [ui.sidebar.agents]
 rows = [["state_icon", "workspace", "tab"]]
 

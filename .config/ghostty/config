@@ -3,7 +3,6 @@ command = /usr/bin/zsh
 font-size = 10
 click-repeat-interval = 500
 auto-update-channel = tip
-theme = noctalia
 macos-option-as-alt = true
 
 keybind = ctrl+shift+j=write_screen_file:paste
@@ -27,3 +26,4 @@ keybind = ctrl+tab=unbind
 keybind = ctrl+shift+t=unbind
 keybind = cmd+w=unbind
 keybind = shift+enter=unbind
+theme = noctalia

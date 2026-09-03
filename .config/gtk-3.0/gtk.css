@@ -14,3 +14,5 @@
    /* -MessageList-new-mail-fg-color: #ffffff; */
    -MessageList-new-mail-bg-color: #383838;
  }
+
+@import url("noctalia.css");

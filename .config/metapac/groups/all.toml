@@ -105,7 +105,7 @@ arch = { packages = [
   "networkmanager", # Netowrk manager for all network related things
   "ngrok", # Tunnel client for exposing local development servers.
   "niri", # Scrollable-tiling Wayland compositor.
-  "noctalia-shell", # Desktop shell components/theme, likely used with your Wayland setup.
+  "noctalia", # Desktop shell components/theme, likely used with your Wayland setup.
   "noto-color-emoji-fontconfig", # Fontconfig setup to prefer Noto Color Emoji for emoji rendering.
   "noto-fonts-emoji", # Noto emoji font package.
   "numbat-bin", # Command-line calculator with units and dimensional analysis.
