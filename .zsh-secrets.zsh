@@ -11,7 +11,10 @@
 #              ssh-agent. Keys never touch the parent shell env or disk.
 
 # ---- configuration ----------------------------------------------------------
-SEC_MAP_FILE="$HOME/.dotfiles/.zsh-secrets.map"
+# Locate the map relative to THIS file (symlinks resolved), so the pair can be
+# deployed anywhere -- stow to ~, ZDOTDIR, a plain copy -- as long as the two
+# files stay siblings.
+SEC_MAP_FILE="${${(%):-%N}:A:h}/.zsh-secrets.map"
 SEC_FAIL_MARKER="${XDG_CACHE_HOME:-$HOME/.cache}/shell-secrets/failed"
 SEC_FAIL_TTL=60            # skip pass-cli attempts for N seconds after a failure
 SEC_SSH_KEY_TTL=8h         # ssh-add lifetime for pass-sourced keys

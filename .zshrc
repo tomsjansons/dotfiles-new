@@ -100,16 +100,10 @@ ob-edit() {
   }
 
 # --- secrets (pass-cli + kernel keyring cache) ------------------------------
-# API keys: every shell, cached in kernel keyring (~50ms steady state).
-# SSH keys: per-session opt-in via sec-ssh-init (below).
-# See .zsh-secrets.zsh header for the full design.
-[[ -r "$HOME/.dotfiles/.zsh-secrets.zsh" ]] && source "$HOME/.dotfiles/.zsh-secrets.zsh"
-sec-api-init
-
-z() {
-  sec-ssh-init
-  zellij "$@"
-}
+# Everything secrets-related lives in .zsh-secrets next to this file, found
+# relative to its real location so any deployment layout works.
+_zshrc_dir="${${(%):-%N}:A:h}"
+[[ -r "$_zshrc_dir/.zsh-secrets" ]] && source "$_zshrc_dir/.zsh-secrets"
 
  k3s-local() {
    case "$1" in
