@@ -1,0 +1,51 @@
+# k3s-local: start/stop/status for the local k3s cluster and its iSCSI
+# dependencies. Sourced from .zshrc (found next to it).
+
+k3s-local() {
+   case "$1" in
+     up|start)
+       echo "Starting iSCSI daemon..."
+       sudo systemctl start iscsid.service
+
+       echo "Starting k3s..."
+       sudo systemctl start k3s.service
+
+       echo "Cluster status:"
+       sudo systemctl --no-pager --full status iscsid.service k3s.service
+       ;;
+
+     down|stop)
+       echo "Stopping k3s..."
+       sudo systemctl stop k3s.service
+
+       if [[ -x /usr/local/bin/k3s-killall.sh ]]; then
+         echo "Cleaning up k3s containers, networking, and mounts..."
+         sudo /usr/local/bin/k3s-killall.sh
+       fi
+
+       echo "Stopping iSCSI daemon..."
+       sudo systemctl stop iscsid.service
+
+       echo "Clearing stale iSCSI unit failures..."
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+
+       echo "Cluster stopped."
+       ;;
+
+     status)
+       sudo systemctl --no-pager --full status k3s.service iscsid.service iscsi.service iscsid.socket
+       ;;
+
+     disable-autostart)
+       echo "Disabling k3s and iSCSI autostart..."
+       sudo systemctl disable k3s.service
+       sudo systemctl disable iscsi.service iscsid.socket iscsid.service
+       sudo systemctl reset-failed iscsi.service iscsid.socket iscsid.service
+       ;;
+
+     *)
+       echo "Usage: k3s-local {up|down|status|disable-autostart}"
+       return 2
+       ;;
+   esac
+}
