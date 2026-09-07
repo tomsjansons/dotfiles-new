@@ -6,9 +6,19 @@
 #   Reboot   : keyring empty + pass-cli logged out -> fetch fails in <100ms
 #              (no network), shells start keyless. Run `sec-login` once;
 #              every new shell then picks keys up automatically.
-#   SSH keys : per-session opt-in via `sec-ssh-init` (called from z()).
-#              ONE `pass-cli run` process loads all keys into THIS session's
-#              ssh-agent. Keys never touch the parent shell env or disk.
+#   SSH keys : per-session opt-in via `sec-dev-ssh` (defined in the
+#              devinator zshrc, called from z()). ONE `pass-cli run` process
+#              loads all keys into THIS session's ssh-agent. Keys never touch
+#              the parent shell env or disk.
+#
+#   Keyrings : every pass-cli call in this file runs inside a fresh
+#              `keyctl session ppass` keyring. Shells descending from a
+#              process that outlived its login carry a session keyring
+#              revoked by pam_keyinit; pass-cli links the persistent keyring
+#              (@p) into its SESSION keyring, so a revoked @s fails every
+#              unwrapped call with NoStorageAccess(KeyRevoked) even while
+#              logged in. The joined keyring dies with the child; durable
+#              state lives only in @u (uid-global).
 
 # ---- configuration ----------------------------------------------------------
 # Locate the map relative to THIS file (symlinks resolved), so the pair can be
@@ -65,16 +75,19 @@ sec-api-parse() {
 }
 
 # ---- one batched pass-cli fetch: vault listed once, all refs resolved --------
-# Returns 1 (and writes the fail-marker) if pass-cli fails -- e.g. not logged
-# in (fails in <100ms, no network) or unreachable.
+# Wrapped in a fresh session keyring: from a revoked-@s shell pass-cli
+# cannot link the persistent keyring (@p) and fails with KeyRevoked. This
+# makes sec-api-init (shell startup) and sec-refresh self-heal in such
+# shells. Returns 1 (and writes the fail-marker) if pass-cli fails -- e.g.
+# not logged in (fails in <100ms, no network) or unreachable.
 sec-api-fetch() {
   (( $+commands[keyctl] )) || return 1
 
   local out
   if (( $+commands[timeout] )); then
-    out=$(timeout "$SEC_FETCH_TIMEOUT" pass-cli inject --in-file "$SEC_MAP_FILE" 2>/dev/null)
+    out=$(keyctl session ppass timeout "$SEC_FETCH_TIMEOUT" pass-cli inject --in-file "$SEC_MAP_FILE" 2>/dev/null)
   else
-    out=$(pass-cli inject --in-file "$SEC_MAP_FILE" 2>/dev/null)
+    out=$(keyctl session ppass pass-cli inject --in-file "$SEC_MAP_FILE" 2>/dev/null)
   fi
   if (( $? != 0 )); then
     mkdir -p "${SEC_FAIL_MARKER:h}"
@@ -155,7 +168,8 @@ sec-refresh() {
 }
 
 sec-login() {
-  pass-cli login || return 1
+  # Fresh session keyring, same reason as sec-api-fetch above.
+  keyctl session ppass pass-cli login || return 1
   sec-refresh
 }
 
@@ -178,6 +192,8 @@ sec-status() {
 }
 
 # ---- ssh keys: batched load into THIS session's agent (opt-in) ----------------
+# Primitives only; the user-facing loader is `sec-dev-ssh`, defined in the
+# devinator zshrc (it needs the same keyctl session wrapper as above).
 sec-ssh-agent() {
   ssh-add -l >/dev/null 2>&1
   local agent_status=$?
@@ -190,27 +206,4 @@ SEC_L13_KEY=pass://Personal/lenovo l13 private key/note
 SEC_ADV_KEY=pass://Personal/advangrid-ssh/note
 SEC_PANDORA_KEY=pass://Personal/advangrid pandora-admin/private
 EOF
-}
-
-sec-ssh-init() {
-  sec-ssh-agent
-
-  local out rc
-  out=$(SEC_SSH_TTL="$SEC_SSH_KEY_TTL" pass-cli run --env-file <(sec-ssh-env-map) -- bash -c '
-    for k in SEC_L13_KEY SEC_ADV_KEY SEC_PANDORA_KEY; do
-      val=${!k:-}
-      if [[ -n $val ]] && printf "%s\n" "$val" | ssh-add -t "$SEC_SSH_TTL" - 2>/dev/null; then
-        echo "loaded: $k"
-      else
-        echo "failed: $k"
-      fi
-    done')
-  rc=$?
-
-  if (( rc != 0 )); then
-    print -u2 "sec: ssh key load failed (pass-cli not logged in? run: sec-login)"
-    return 1
-  fi
-  print -- "$out"
-  print "sec: ssh agent holds $(ssh-add -l 2>/dev/null | wc -l) key(s)"
 }
