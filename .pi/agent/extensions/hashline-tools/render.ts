@@ -49,6 +49,28 @@ export const LIGHTER_BLUE = "\x1b[38;2;66;165;245m"; // #42a5f5 (material blue 4
 export const LIGHT_PURPLE = "\x1b[38;2;206;147;216m"; // #ce93d8 (material purple 200)
 
 /**
+ * Material Theme syntax palette (material-theme.com/docs/reference/color-palette),
+ * emitted as truecolor foregrounds so the shades are palette-independent.
+ * These are the documented Material syntax roles and share the Material family
+ * with the existing DARK_BLUE / LIGHT_PURPLE constants above:
+ *
+ *   keyword  #C792EA (purple)   — def, return, import, if, const, function
+ *   string   #C3E88D (green)    — '…', "…", """…""", templates, regex
+ *   function #82AAFF (blue)     — calls, defs, language builtins (print, len)
+ *   number   #F78C6C (orange)   — numeric/boolean/constant literals
+ *   operator #89DDFF (cyan)     — operators, punctuation, f-string delimiters
+ *   comment  #546E7A (gray)     — # … and // …
+ *   type     #FFCB6B (yellow)   — class names, decorators (material "attributes")
+ */
+export const CODE_KEYWORD = "\x1b[38;2;199;146;234m"; // #C792EA (material purple 200)
+export const CODE_STRING = "\x1b[38;2;195;232;141m"; // #C3E88D (material green 200)
+export const CODE_FUNCTION = "\x1b[38;2;130;170;255m"; // #82AAFF (material blue 300)
+export const CODE_NUMBER = "\x1b[38;2;247;140;108m"; // #F78C6C (material orange 300)
+export const CODE_OPERATOR = "\x1b[38;2;137;221;255m"; // #89DDFF (material cyan 300)
+export const CODE_COMMENT = "\x1b[38;2;84;110;122m"; // #546E7A (material blue gray 600)
+export const CODE_TYPE = "\x1b[38;2;255;203;107m"; // #FFCB6B (material amber 200)
+
+/**
  * Colorize each line of `text` in the given truecolor foreground. Per-line so
  * RawText's per-line truncation stays byte-faithful and colors can't leak
  * between lines.

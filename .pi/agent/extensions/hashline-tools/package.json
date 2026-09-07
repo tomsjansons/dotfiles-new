@@ -8,6 +8,10 @@
 	},
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "^0.74.0",
-		"@sinclair/typebox": "^0.34.49"
+		"@sinclair/typebox": "^0.34.49",
+		"prismjs": "^1.30.0"
+	},
+	"devDependencies": {
+		"@types/prismjs": "^1.26.5"
 	}
 }

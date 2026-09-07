@@ -19,6 +19,11 @@
  *   line, with the operator shown at the start of the continuation.
  * - Collapsed: the full command (all split lines), NO output. On error the
  *   error message is always shown (8-space indented, red).
+ * - Segments carrying code — `python3 -c '…'`, `node --eval "…"`, heredocs fed
+ *   to an interpreter (`python3 <<'EOF'`, `bash <<EOF`) or redirected into a
+ *   file (`cat >/tmp/e.ts <<'EOF'`, language inferred from the extension) —
+ *   are syntax-colored per-token with the Material syntax palette
+ *   (highlight.ts, PrismJS tokenizer); everything else stays flat dark blue.
  * - Expanded (app.tools.expand): the command block + full tool output below.
  * - Duration: only when settled (between the `$` and the first command line).
  *
@@ -36,9 +41,9 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateTail } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
+import { colorizeCodeSegment } from "./highlight";
 import {
 	animateSpinner,
-	colorizeCommand,
 	colorizeLines,
 	HANGING_INDENT,
 	LIGHT_PURPLE,
@@ -49,7 +54,6 @@ import {
 	settlePending,
 	stopSpinner,
 	stripAnsi,
-	wrapPath,
 } from "./render";
 
 /** 8-space offset for continuation/error lines (same as hashline). */
@@ -319,14 +323,11 @@ export function formatBashStatusLine(
 	// If the first segment contains a heredoc (`<<`), render it verbatim: the
 	// heredoc body must stay unmodified (never re-wrapped or re-indented). Only
 	// the part before the `<<` gets width-wrapped. Colorize AFTER wrapping so
-	// wrapPath sees plain text.
-	const heredocIdx = first.indexOf("<<");
-	if (heredocIdx !== -1) {
-		const head = first.slice(0, heredocIdx);
-		const heredoc = first.slice(heredocIdx);
-		return prefix + colorizeCommand(wrapPath(head, width) + heredoc);
-	}
-	return prefix + colorizeCommand(wrapPath(first, width));
+	// plain-text paths see unstyled text; segments carrying python/node code
+	// (inline -c/--eval/-e or heredoc bodies) are syntax-colored per-token with
+	// the Material palette (highlight.ts) and stay byte-faithful (never
+	// re-wrapped). Everything else stays flat dark blue.
+	return prefix + colorizeCodeSegment(first, width);
 }
 
 /**
@@ -358,10 +359,10 @@ export function formatCommandContinuations(theme: Theme, command: string): strin
 			}
 			const op = theme.fg("dim", part.op);
 			const sep = rest ? " " : "";
-			lines.push(`${CONTINUATION_INDENT}${op}${sep}${rest ? colorizeCommand(rest) : ""}`);
+			lines.push(`${CONTINUATION_INDENT}${op}${sep}${rest ? colorizeCodeSegment(rest) : ""}`);
 			if (rest) idx = j; // consume the paired rest entry
 		} else if (part.rest && !part.op) {
-			lines.push(`${CONTINUATION_INDENT}${colorizeCommand(part.rest)}`);
+			lines.push(`${CONTINUATION_INDENT}${colorizeCodeSegment(part.rest)}`);
 		}
 	}
 	return lines.join("\n");
