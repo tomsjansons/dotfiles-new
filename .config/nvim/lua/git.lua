@@ -225,6 +225,25 @@ vim.keymap.set("n", "<leader>ghr", "<cmd>Gitsigns reset_hunk<cr>", { desc = "Hun
 
 require("octo").setup({})
 
+local octo_review_wrap = vim.api.nvim_create_augroup("OctoReviewWrap", { clear = true })
+vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
+	group = octo_review_wrap,
+	callback = function(args)
+		if not vim.startswith(vim.api.nvim_buf_get_name(args.buf), "octo://") then
+			return
+		end
+		vim.schedule(function()
+			for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+				local bufid = vim.api.nvim_win_get_buf(winid)
+				if vim.startswith(vim.api.nvim_buf_get_name(bufid), "octo://")
+					and vim.api.nvim_get_option_value("diff", { win = winid, scope = "local" }) then
+					vim.api.nvim_set_option_value("wrap", true, { win = winid, scope = "local" })
+				end
+			end
+		end)
+	end,
+})
+
 wk.add({
 	{ "<leader>ggp", group = "Github" },
 })
