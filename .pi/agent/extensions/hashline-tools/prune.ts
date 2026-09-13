@@ -3,10 +3,18 @@
  * implemented as a send-time transform on the `context` event.
  *
  * Semantics (port of opencode's SessionCompaction.prune):
+ * - nothing inside the two most recent user turns is ever touched
+ *   (upstream's `turns < 2` guard — pruning only reaches past history)
  * - walk messages newest → oldest, accumulating estimated tool-result tokens
  * - the most recent PRUNE_PROTECT tokens of tool output are untouchable
  * - everything older is prunable, but the transform only applies once the
  *   prunable backlog exceeds PRUNE_MINIMUM — pruning happens in JUMPS
+ * - tool results containing image blocks are never pruned and never counted:
+ *   upstream estimates only the text `state.output` (attachments excluded), and
+ *   stubbing an image the model is still reasoning about is the exact failure
+ *   mode pruning must not create — models would report "images cleared from
+ *   context". Base64 in `content` would also let a single screenshot trigger a
+ *   jump on its own, wiping the image (and older text) almost immediately.
  * - a pruned result keeps its message/part structure; only the body becomes
  *   a placeholder (attachments dropped)
  *
@@ -50,6 +58,11 @@ function estimate(content: unknown): number {
 	}
 }
 
+/** Image blocks must survive pruning; their base64 must not inflate the estimate. */
+function hasImage(content: unknown[]): boolean {
+	return content.some((c) => (c as { type?: string } | null)?.type === "image");
+}
+
 export function registerPruner(pi: ExtensionAPI): void {
 	pi.on("context", async (event) => {
 		if (process.env.PI_PRUNE_DISABLE) return;
@@ -57,10 +70,17 @@ export function registerPruner(pi: ExtensionAPI): void {
 
 		let total = 0;
 		let prunable = 0;
+		let turns = 0;
 		const toPrune: ToolResultMessage[] = [];
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const m = messages[i];
+			if (m.role === "user") {
+				turns++;
+				continue;
+			}
+			if (turns < 2) continue; // current + previous user turn are untouchable
 			if (m.role !== "toolResult" || !Array.isArray(m.content)) continue;
+			if (hasImage(m.content)) continue; // images: never pruned, never counted
 			const size = estimate(m.content);
 			total += size;
 			if (total <= PRUNE_PROTECT) continue;
