@@ -13,9 +13,13 @@
 #            `containers-changed` event carries the full host+container list as
 #            JSON. That is how the UI enumerates containers — there is no
 #            separate list endpoint.
-#   logs     GET /api/hosts/{host}/containers/{id}/logs?from=&to=&stdout&stderr
+#   logs     GET /api/hosts/{host}/containers/{id}/logs?stdout&stderr&everything
 #            returns application/x-jsonl, or text/plain when the request sends
-#            `Accept: text/plain`. Add `everything` to ignore from/to.
+#            `Accept: text/plain`. The id goes in the path RAW: on Kubernetes it
+#            is `namespace:pod:container`, and percent-encoding the colons makes
+#            Dozzle 404. This deployment is K8s behind v11.0.1, where the
+#            server-side from/to window returns nothing, so the script always
+#            sends `everything` and slices by ts (epoch ms) locally.
 #   follow   GET /api/hosts/{host}/containers/{id}/logs/stream (SSE).
 #   download GET /api/containers/{host~id,...}/download?... returns a ZIP of
 #            log files (needs the `download` role).
@@ -25,10 +29,10 @@
 # calls skip the login round-trip. Nothing secret is ever written to argv.
 #
 # Usage:
-#   ag-dozzle containers [--all]
+#   ag-dozzle containers [--all] [--json]
 #   ag-dozzle find <name-substring>
 #   ag-dozzle logs <name-substring|host~id> [options]
-#   ag-dozzle follow <name-substring|host~id> [--grep RE] [--inverse]
+#   ag-dozzle follow <name-substring|host~id> [--grep RE] [--inverse]   (SSE frames)
 #   ag-dozzle download <name-substring|host~id>... [options]
 #   ag-dozzle api <GET-path>            authenticated GET, body to stdout
 #   ag-dozzle logout
@@ -36,7 +40,7 @@
 # logs/download options:
 #   --since 30m            window ending now (default 15m; m/h/d suffixes)
 #   --from ISO --to ISO    explicit RFC3339 window
-#   --all                  everything the server retains (ignores the window)
+#   --all                  no time window (every line the server retains)
 #   --grep RE              server-side regex filter
 #   --inverse              drop lines matching --grep instead of keeping them
 #   --level error,warn     repeatable; keep only these levels
@@ -63,23 +67,35 @@ LOG_TIMEOUT="${AG_DOZZLE_LOG_TIMEOUT:-120}"
 die() { printf 'ag-dozzle: %s\n' "$*" >&2; exit 1; }
 have_jq() { command -v jq >/dev/null 2>&1; }
 
-# percent-encode stdin/arg without external tools (host names and container ids
-# are ASCII, which is all this needs to handle)
-urlenc() {
-  local s="$1" out="" c i
-  for (( i = 0; i < ${#s}; i++ )); do
-    c="${s:i:1}"
-    case "$c" in
-      [a-zA-Z0-9.~_-]) out+="$c" ;;
-      *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
-    esac
-  done
-  printf '%s' "$out"
+# .zsh-secrets caches every value in the per-uid kernel persistent keyring under
+# `sec:<NAME>`. A fresh shell gets them exported, but a long-running agent (this
+# one, say) inherited its environment before they existed and cannot refresh it.
+# Fall back to the keyring so the helper works either way.
+_from_keyring() {
+  local name="$1" val
+  command -v keyctl >/dev/null 2>&1 || return 1
+  val=$(keyctl session - bash -c '
+    pid=$(keyctl get_persistent @s "$EUID" 2>/dev/null) || exit 1
+    kid=$(keyctl search "$pid" user "sec:$1" 2>/dev/null) || exit 1
+    keyctl pipe "$kid" 2>/dev/null' _ "$name" 2>/dev/null) || return 1
+  [[ -n "$val" ]] || return 1
+  printf '%s' "$val"
+}
+
+# Export $1 from the environment, falling back to the keyring cache.
+load_var() {
+  local name="$1" val
+  eval "val=\${$name:-}"
+  if [[ -z "$val" ]]; then
+    val=$(_from_keyring "$name") || return 1
+    export "$name=$val"
+  fi
+  return 0
 }
 
 need_creds() {
-  [[ -n "${ADV_PROD_DOZZLE_USER:-}" && -n "${ADV_PROD_DOZZLE_PWD:-}" ]] || die \
-    "ADV_PROD_DOZZLE_USER / ADV_PROD_DOZZLE_PWD are unset. Run 'sec-login' (or 'sec-api') in zsh first."
+  load_var ADV_PROD_DOZZLE_USER && load_var ADV_PROD_DOZZLE_PWD || die \
+    "ADV_PROD_DOZZLE_USER / ADV_PROD_DOZZLE_PWD unavailable. Run 'sec-login' (or 'sec-api') in zsh first."
 }
 
 # --- auth ---------------------------------------------------------------------
@@ -103,7 +119,12 @@ do_login() {
     --data-urlencode "password@$pfile" \
     "$BASE/api/token" 2>/dev/null) || code=000
   rm -f "$ufile" "$pfile"
-  [[ "$code" == 200 ]] || die "login failed (HTTP $code) — check $BASE and the ADV_PROD_DOZZLE_* credentials"
+  case "$code" in
+    200) ;;
+    401 | 403) die "login rejected (HTTP $code) — the ADV_PROD_DOZZLE_* credentials are wrong or rotated" ;;
+    000) die "no response from $BASE" ;;
+    *) die "login failed (HTTP $code) from $BASE — service or route problem, not credentials" ;;
+  esac
   chmod 600 "$COOKIE_JAR" 2>/dev/null || true
 }
 
@@ -166,7 +187,7 @@ resolve() {
   fi
   if (( n > 1 )); then
     printf 'ag-dozzle: %d containers match %s:\n' "$n" "'$q'" >&2
-    printf '%s\n' "$matches" | awk -F'\t' '{printf "  %s  %s  %s\n", $1, substr($2, 1, 12), $3}' >&2
+    printf '%s\n' "$matches" | awk -F'\t' '{printf "  %s  %s\n", $1, $3}' >&2
     exit 1
   fi
   [[ -n "${matches%%$'\t'*}" ]] || die "Dozzle reported an empty host for '$q'; pass host~id explicitly"
@@ -215,11 +236,12 @@ parse_log_opts() {
   fi
 }
 
+# The deployment at advangrid runs v11.0.1 against Kubernetes, where the
+# server's from/to window (LogsBetweenDates) returns nothing — only `everything`
+# does. So always ask for everything and slice by ts (epoch ms) on the client.
+# --grep/--level/--inverse are still applied server-side inside that branch.
 build_log_query() {
-  log_query_args=(--data-urlencode "stdout=" --data-urlencode "stderr=")
-  (( opt_all )) && log_query_args+=(--data-urlencode "everything=")
-  [[ -n "$opt_from" ]] && log_query_args+=(--data-urlencode "from=$opt_from")
-  [[ -n "$opt_to" ]] && log_query_args+=(--data-urlencode "to=$opt_to")
+  log_query_args=(--data-urlencode "stdout=" --data-urlencode "stderr=" --data-urlencode "everything=")
   [[ -n "$opt_grep" ]] && log_query_args+=(--data-urlencode "filter=$opt_grep")
   (( opt_inverse )) && log_query_args+=(--data-urlencode "inverse=true")
   local l
@@ -232,17 +254,23 @@ build_log_query() {
 # --- commands -----------------------------------------------------------------
 
 cmd_containers() {
-  local all=0 json
-  [[ "${1:-}" == "--all" ]] && all=1
+  local all=0 json_out=0 json a
+  for a in "$@"; do
+    case "$a" in
+      --all) all=1 ;;
+      --json) json_out=1 ;;
+      *) die "unknown option '$a'" ;;
+    esac
+  done
   json=$(snapshot)
-  if ! have_jq; then
-    printf '%s\n' "$json"
+  if (( json_out )) || ! have_jq; then
+    if have_jq; then jq '.' <<<"$json"; else printf '%s\n' "$json"; fi
     return 0
   fi
   local filter='.'
   (( all )) || filter='select(.state == "running")'
-  jq -r ".[] | $filter | [(.host // \"-\"), (.id[0:12]), .state, (.health // \"-\"), .name, .image] | @tsv" <<<"$json" \
-    | column -t -s $'\t'
+  jq -r ".[] | $filter | [(.host // \"-\"), .state, (.health // \"-\"), .name, .image] | @tsv" <<<"$json" \
+    | (printf 'HOST\tSTATE\tHEALTH\tNAME\tIMAGE\n'; cat) | column -t -s $'\t'
 }
 
 cmd_logs() {
@@ -251,23 +279,38 @@ cmd_logs() {
   shift
   parse_log_opts "$@"
   ensure_login
-  local host id name accept out
-  IFS=$'\t' read -r host id name <<<"$(resolve "$target")"
-  accept="text/plain"
-  (( opt_json )) && accept="application/x-jsonl"
+  have_jq || die "jq is required"
+  local host id name out code meta
+  meta=$(resolve "$target") || exit 1
+  IFS=$'\t' read -r host id name <<<"$meta"
   build_log_query
+  # -w appends the status after a final newline so a Cloudflare error body cannot
+  # masquerade as log output. The server always returns x-jsonl here because the
+  # window is sliced locally by ts.
   out=$(curl -sS -m "$LOG_TIMEOUT" -b "$COOKIE_JAR" -G \
     "${log_query_args[@]}" \
-    -H "Accept: $accept" \
-    "$BASE/api/hosts/$(urlenc "$host")/containers/$(urlenc "$id")/logs")
-  if [[ -n "$out" ]]; then
-    if [[ -n "$opt_tail" ]]; then
-      printf '%s\n' "$out" | tail -n "$opt_tail"
-    else
-      printf '%s\n' "$out"
-    fi
+    -H 'Accept: application/x-jsonl' \
+    -w $'\n%{http_code}' \
+    "$BASE/api/hosts/$host/containers/$id/logs")
+  code=${out##*$'\n'}
+  out=${out%$'\n'*}
+  [[ "$code" == 200 ]] || die "log fetch failed (HTTP $code) for $host/$id"
+  if (( ! opt_all )); then
+    local from_ms to_ms
+    from_ms=$(date -d "$opt_from" +%s%3N)
+    to_ms=$(date -d "$opt_to" +%s%3N)
+    out=$(printf '%s\n' "$out" | jq -c --argjson f "$from_ms" --argjson t "$to_ms" 'select(.ts >= $f and .ts <= $t)')
+  fi
+  [[ -n "$out" ]] || { printf 'ag-dozzle: no log lines matched in the requested window\n' >&2; return 0; }
+  if (( opt_json )); then
+    out=$(printf '%s\n' "$out")
   else
-    printf 'ag-dozzle: no log lines matched in the requested window\n' >&2
+    out=$(printf '%s\n' "$out" | jq -r '"\(.ts / 1000 | floor | todate) \(.l) \(if (.m | type) == "string" then .m else (.m | tostring) end)"')
+  fi
+  if [[ -n "$opt_tail" ]]; then
+    printf '%s\n' "$out" | tail -n "$opt_tail"
+  else
+    printf '%s\n' "$out"
   fi
 }
 
@@ -285,13 +328,15 @@ cmd_follow() {
     shift
   done
   ensure_login
-  local host id
-  IFS=$'\t' read -r host id _ <<<"$(resolve "$target")"
-  local -a args=(-sSN -m "${AG_FOLLOW_SECONDS:-60}" -b "$COOKIE_JAR" -H 'Accept: text/plain')
+  local host id meta
+  meta=$(resolve "$target") || exit 1
+  IFS=$'\t' read -r host id _ <<<"$meta"
+  local -a args=(-sSN -m "${AG_FOLLOW_SECONDS:-60}" -b "$COOKIE_JAR"
+    --data-urlencode "stdout=" --data-urlencode "stderr=")
   [[ -n "$grep_re" ]] && args+=(--data-urlencode "filter=$grep_re")
   (( inverse )) && args+=(--data-urlencode "inverse=true")
-  printf 'ag-dozzle: following %s for %ss (Ctrl-C to stop)\n' "$target" "${AG_FOLLOW_SECONDS:-60}" >&2
-  curl "${args[@]}" -G "$BASE/api/hosts/$(urlenc "$host")/containers/$(urlenc "$id")/logs/stream"
+  printf 'ag-dozzle: following %s for %ss (raw SSE frames; Ctrl-C to stop)\n' "$target" "${AG_FOLLOW_SECONDS:-60}" >&2
+  curl "${args[@]}" -G "$BASE/api/hosts/$host/containers/$id/logs/stream"
 }
 
 cmd_download() {
@@ -304,9 +349,10 @@ cmd_download() {
   parse_log_opts "$@"
   ensure_login
   local -a ids=()
-  local t host id joined out
+  local t host id joined out meta
   for t in "${targets[@]}"; do
-    IFS=$'\t' read -r host id _ <<<"$(resolve "$t")"
+    meta=$(resolve "$t") || exit 1
+    IFS=$'\t' read -r host id _ <<<"$meta"
     ids+=("$host~$id")
   done
   joined=$(IFS=,; printf '%s' "${ids[*]}")
@@ -316,7 +362,7 @@ cmd_download() {
     "${log_query_args[@]}" \
     --data-urlencode "name=advangrid" \
     -o "$out" \
-    "$BASE/api/containers/$(urlenc "$joined")/download"
+    "$BASE/api/containers/$joined/download"
   printf 'wrote %s\n' "$out"
 }
 

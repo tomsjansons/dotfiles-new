@@ -10,25 +10,27 @@ relative to this skill directory.
 
 ## Prerequisites
 
-| Service | Env vars |
-| --- | --- |
-| MySQL | `ADV_PROD_MYSQL_{HOST,PORT,USER,PWD}` |
-| Dozzle | `ADV_PROD_DOZZLE_{URL,USER,PWD}` |
-| Inngest | `ADV_PROD_INNGEST_{URL,USER,PWD}` |
+| Service | Required env vars | Optional (defaulted) |
+| --- | --- | --- |
+| MySQL | `ADV_PROD_MYSQL_{HOST,PORT,USER,PWD}` | |
+| Dozzle | `ADV_PROD_DOZZLE_{USER,PWD}` | `ADV_PROD_DOZZLE_URL` |
+| Inngest | `ADV_PROD_INNGEST_{USER,PWD}` | `ADV_PROD_INNGEST_URL` |
 
-Check the ones you need are present:
+Check the required ones are present:
 
 ```sh
-for v in ADV_PROD_MYSQL_HOST ADV_PROD_MYSQL_USER ADV_PROD_MYSQL_PWD \
-         ADV_PROD_DOZZLE_URL ADV_PROD_DOZZLE_USER ADV_PROD_DOZZLE_PWD \
-         ADV_PROD_INNGEST_URL ADV_PROD_INNGEST_USER ADV_PROD_INNGEST_PWD; do
+for v in ADV_PROD_MYSQL_HOST ADV_PROD_MYSQL_PORT ADV_PROD_MYSQL_USER ADV_PROD_MYSQL_PWD \
+         ADV_PROD_DOZZLE_USER ADV_PROD_DOZZLE_PWD \
+         ADV_PROD_INNGEST_USER ADV_PROD_INNGEST_PWD; do
   eval "val=\$$v"
   [ -n "$val" ] || echo "MISSING: $v"
 done
 ```
 
-If any variable is empty, stop and ask the user to run `sec-login` (or
-`sec-api`) in zsh. Never print, log, or echo the credential variables.
+An empty variable is not fatal: the helpers fall back to the `~/.zsh-secrets`
+kernel-keyring cache. If a helper reports the credentials are unavailable, stop
+and ask the user to run `sec-login` (or `sec-api`) in zsh. Never print, log, or
+echo credential values.
 
 ## MySQL
 

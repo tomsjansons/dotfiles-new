@@ -51,9 +51,35 @@ TIMEOUT="${AG_HTTP_TIMEOUT:-60}"
 die() { printf 'ag-inngest: %s\n' "$*" >&2; exit 1; }
 need_jq() { command -v jq >/dev/null 2>&1 || die "jq is required"; }
 
+# .zsh-secrets caches every value in the per-uid kernel persistent keyring under
+# `sec:<NAME>`. A fresh shell gets them exported, but a long-running agent (this
+# one, say) inherited its environment before they existed and cannot refresh it.
+# Fall back to the keyring so the helper works either way.
+_from_keyring() {
+  local name="$1" val
+  command -v keyctl >/dev/null 2>&1 || return 1
+  val=$(keyctl session - bash -c '
+    pid=$(keyctl get_persistent @s "$EUID" 2>/dev/null) || exit 1
+    kid=$(keyctl search "$pid" user "sec:$1" 2>/dev/null) || exit 1
+    keyctl pipe "$kid" 2>/dev/null' _ "$name" 2>/dev/null) || return 1
+  [[ -n "$val" ]] || return 1
+  printf '%s' "$val"
+}
+
+# Export $1 from the environment, falling back to the keyring cache.
+load_var() {
+  local name="$1" val
+  eval "val=\${$name:-}"
+  if [[ -z "$val" ]]; then
+    val=$(_from_keyring "$name") || return 1
+    export "$name=$val"
+  fi
+  return 0
+}
+
 need_creds() {
-  [[ -n "${ADV_PROD_INNGEST_USER:-}" && -n "${ADV_PROD_INNGEST_PWD:-}" ]] || die \
-    "ADV_PROD_INNGEST_USER / ADV_PROD_INNGEST_PWD are unset. Run 'sec-login' (or 'sec-api') in zsh first."
+  load_var ADV_PROD_INNGEST_USER && load_var ADV_PROD_INNGEST_PWD || die \
+    "ADV_PROD_INNGEST_USER / ADV_PROD_INNGEST_PWD unavailable. Run 'sec-login' (or 'sec-api') in zsh first."
 }
 
 # curl with Basic auth from a 0600 config file, so the password never shows up
