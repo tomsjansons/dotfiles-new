@@ -62,6 +62,13 @@
 					}
 				}
 			]
+		},
+		"commandcode": {
+			"modelOverrides": {
+				"deepseek/deepseek-v4.1-flash": {
+					"input": ["text", "image"]
+				}
+			}
 		}
 	}
 }

@@ -31,11 +31,32 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 /** Default fallback: verified present + vision-capable in the commandcode provider. */
 export const DEFAULT_VISION_FALLBACK = { provider: "commandcode", model: "Qwen/Qwen3.7-Flash" } as const;
 
+/**
+ * Output budget for the first describe attempt.
+ *
+ * Was 800, which is too small for a reasoning-capable describer: reasoning
+ * tokens are billed against the same budget, so an attempt can end with zero
+ * text blocks (observed: 18-31s calls returning an empty string) and real
+ * descriptions arrived truncated (~2.8k chars ≈ the cap).
+ */
+export const DESCRIBE_MAX_TOKENS = 4000;
+/** Retry budget when an attempt produced no text at all (reasoning-only answer). */
+export const DESCRIBE_RETRY_MAX_TOKENS = 12000;
+/** Describe attempts before giving up: first budget, then the retry budget. */
+const DESCRIBE_BUDGETS = [DESCRIBE_MAX_TOKENS, DESCRIBE_RETRY_MAX_TOKENS] as const;
+
 const SETTINGS_FILE = "hashline-settings.json";
 
 export interface VisionFallbackConfig {
 	provider: string;
 	model: string;
+}
+
+/** The subset of a completion result we rely on (diagnostics for empty answers). */
+export interface VisionCompletion {
+	content: readonly { type: string; text?: string }[];
+	stopReason?: string;
+	usage?: { output?: number };
 }
 
 /** The subset of a Model we rely on. Structural: avoids the stale 0.74 type export. */
@@ -80,9 +101,7 @@ export async function loadVisionFallbackConfig(): Promise<VisionFallbackConfig |
 export interface VisionRegistry {
 	find(provider: string, modelId: string): unknown;
 	hasConfiguredAuth(model: unknown): boolean;
-	complete(model: unknown, context: unknown, options?: { maxTokens?: number; signal?: AbortSignal }): Promise<{
-		content: readonly { type: string; text?: string }[];
-	}>;
+	complete(model: unknown, context: unknown, options?: { maxTokens?: number; signal?: AbortSignal }): Promise<VisionCompletion>;
 }
 
 /**
@@ -104,36 +123,65 @@ export async function resolveVisionFallbackModel(
 	return model as VisionModel;
 }
 
-/** Describe the image via the fallback model. Throws on failure (auth, network, ...). */
+/** Text blocks of a completion, joined and trimmed (whitespace-only === empty). */
+function completionText(result: VisionCompletion): string {
+	return result.content
+		.filter((c): c is { type: string; text: string } => c.type === "text" && typeof c.text === "string")
+		.map((c) => c.text)
+		.join("\n")
+		.trim();
+}
+
+/** Compact diagnostics for an attempt that produced no text (shown in the read note). */
+function emptyAttemptDetail(result: VisionCompletion, maxTokens: number): string {
+	const parts = [`maxTokens=${maxTokens}`];
+	if (result.stopReason) parts.push(`stopReason=${result.stopReason}`);
+	if (typeof result.usage?.output === "number") parts.push(`outputTokens=${result.usage.output}`);
+	return parts.join(" ");
+}
+
+/**
+ * Describe the image via the fallback model.
+ *
+ * Throws on failure (auth, network, ...) *and* on an empty answer: a model
+ * that spends its whole output budget on reasoning returns no text blocks, and
+ * silently handing "" to the caller is how a read ends up with a
+ * `[Described by ...]` marker and nothing under it. One retry with a larger
+ * budget, then throw with the stop reason so the read note says why.
+ */
 export async function describeImage(
 	image: { data: string; mimeType: string },
 	visionModel: VisionModel,
 	ctx: ExtensionContext,
 	registry: VisionRegistry = ctx.modelRegistry as unknown as VisionRegistry,
 ): Promise<string> {
-	const result = await registry.complete(
-		visionModel,
-		{
-			systemPrompt:
-				"You are an image description service. Describe the image in detail, including text/labels, layout, colors, and anything notable.",
-			messages: [
-				{
-					role: "user",
-					timestamp: Date.now(),
-					content: [
-						{
-							type: "text",
-							text: "Describe this image in detail, including text/labels, layout, colors, and anything notable.",
-						},
-						{ type: "image", data: image.data, mimeType: image.mimeType },
-					],
-				},
-			],
-		},
-		{ maxTokens: 800, signal: ctx.signal },
-	);
-	return result.content
-		.filter((c): c is { type: string; text?: string } => c.type === "text" && typeof c.text === "string")
-		.map((c) => c.text as string)
-		.join("\n");
+	let lastDetail = "no attempt made";
+	for (const maxTokens of DESCRIBE_BUDGETS) {
+		const result = await registry.complete(
+			visionModel,
+			{
+				systemPrompt:
+					"You are an image description service. Describe the image in detail, including text/labels, layout, colors, and anything notable.",
+				messages: [
+					{
+						role: "user",
+						timestamp: Date.now(),
+						content: [
+							{
+								type: "text",
+								text: "Describe this image in detail, including text/labels, layout, colors, and anything notable.",
+							},
+							{ type: "image", data: image.data, mimeType: image.mimeType },
+						],
+					},
+				],
+			},
+			{ maxTokens, signal: ctx.signal },
+		);
+		const text = completionText(result);
+		if (text) return text;
+		lastDetail = emptyAttemptDetail(result, maxTokens);
+		if (ctx.signal?.aborted) break; // aborted: don't spend a second request
+	}
+	throw new Error(`returned no text (${lastDetail})`);
 }
