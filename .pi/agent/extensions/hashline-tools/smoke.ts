@@ -259,6 +259,28 @@ check(
 	t(rFail),
 );
 
+// Fallback completes with no text at all (reasoning ate the whole budget): the
+// read must say so, never emit "[Described by ...]" over a blank description.
+let emptyCalls = 0;
+const emptyCtx = {
+	...fakeCtx,
+	modelRegistry: {
+		...fakeCtx.modelRegistry,
+		complete: async () => {
+			emptyCalls++;
+			return { content: [], stopReason: "length", usage: { output: 12000 } };
+		},
+	},
+};
+const rEmpty = await executeRead("c15", { path: "img.png" }, undefined, undefined, emptyCtx);
+check("empty fallback description retries once", emptyCalls === 2, String(emptyCalls));
+check(
+	"empty fallback description → text-only note with reason, no blank description",
+	t(rEmpty).includes("failed: returned no text (maxTokens=12000 stopReason=length outputTokens=12000)") && !t(rEmpty).includes("Described by") && rEmpty.content.every((c: any) => c.type === "text"),
+	t(rEmpty),
+);
+check("empty fallback description leaves no stashed description", getStashedImageRead("c15")?.description === undefined);
+
 // Configured model not vision-capable → treated as no usable fallback
 const textOnlyModel = { id: "deepseek/deepseek-v4-flash", provider: "commandcode", input: ["text"] };
 const badFallbackCtx = {
