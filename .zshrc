@@ -108,6 +108,13 @@ ob-edit() {
 # Everything secrets-related lives in .zsh-secrets next to this file.
 [[ -r "$_zshrc_dir/.zsh-secrets" ]] && source "$_zshrc_dir/.zsh-secrets"
 
+# --- advangrid production read-only frontends --------------------------------
+# Credentials (ADV_PROD_DOZZLE_{USER,PWD}, ADV_PROD_INNGEST_{USER,PWD}) come from
+# pass-cli via .zsh-secrets.map. Only the base URLs are plain env vars.
+# See .agents/skills/advangrid-prod-access/SKILL.md for authenticated API usage.
+export ADV_PROD_DOZZLE_URL="${ADV_PROD_DOZZLE_URL:-https://dozzle.advangrid.com}"
+export ADV_PROD_INNGEST_URL="${ADV_PROD_INNGEST_URL:-https://inngest.advangrid.com}"
+
 # --- k3s local cluster helper ------------------------------------------------
 # See .zsh-k3s next to this file.
 [[ -r "$_zshrc_dir/.zsh-k3s" ]] && source "$_zshrc_dir/.zsh-k3s"
