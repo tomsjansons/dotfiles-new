@@ -1,0 +1,33 @@
+# test-ui: a deliberately static plugin used to exercise the v5 plugin surfaces.
+#
+# The bar widget renders a fixed email counter; clicking it opens a panel with a
+# table of messages. Marking a message read updates the bar counter through
+# noctalia.state. There is no mail integration: no network, no subprocesses, no
+# filesystem writes.
+#
+# plugin_api 22 is required for `require("./lib/inbox.luau")`.
+
+id          = "toms/test-ui"
+name        = "Test UI"
+version     = "0.1.0"
+plugin_api  = 22
+author      = "toms"
+license     = "MIT"
+icon        = "mail"
+description = "Static email inbox: a bar counter that opens a dropdown table of messages."
+tags        = ["demo", "bar", "panel"]
+
+# Bar widget: "(1) new; (33) unread". Left click toggles the inbox panel.
+[[widget]]
+id    = "email"
+entry = "widget.luau"
+
+# The dropdown. `attached` anchors the surface to the bar edge and
+# `open_near_click` places it under the widget that toggled it.
+[[panel]]
+id              = "inbox"
+entry           = "panel.luau"
+width           = 560
+height          = 420
+placement       = "attached"
+open_near_click = true
