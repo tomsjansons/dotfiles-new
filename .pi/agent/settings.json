@@ -12,7 +12,8 @@
     "npm:pi-commandcode-provider",
     "npm:pi-continual-harness",
     "npm:@tintinweb/pi-subagents",
-    "npm:pi-loop-police"
+    "npm:pi-loop-police",
+    "npm:pi-mcp-adapter"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",
