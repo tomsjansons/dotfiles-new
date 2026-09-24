@@ -20,6 +20,20 @@
 
 import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { BuildCache } from "./build-cache";
+
+/**
+ * Build-once caches for the pure formatting builders below. Tool rows are
+ * rebuilt on every streaming chunk and every 100 ms spinner tick (see
+ * build-cache.ts), and re-rendered every frame — these keep the expensive
+ * string work at one build per input. Builders are pure, so cached output is
+ * byte-identical to fresh output.
+ */
+const styledPathCache = new BuildCache<string>();
+const colorizedLinesCache = new BuildCache<string>();
+const errorDetailCache = new BuildCache<string>();
+const wrappedParagraphCache = new BuildCache<string>();
+const rawTextLinesCache = new BuildCache<string[]>(1024);
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -77,10 +91,12 @@ export const CODE_TYPE = "\x1b[38;2;255;203;107m"; // #FFCB6B (material amber 20
  */
 export function colorizeLines(text: string, color: string): string {
 	if (!text) return text;
-	return text
-		.split("\n")
-		.map((line) => `${color}${line}${ANSI_RESET_FG}`)
-		.join("\n");
+	return colorizedLinesCache.get(text, color, () =>
+		text
+			.split("\n")
+			.map((line) => `${color}${line}${ANSI_RESET_FG}`)
+			.join("\n"),
+	);
 }
 
 /**
@@ -257,11 +273,13 @@ export function formatStatusLine(
 	const prefixWidth = visibleWidth(stripAnsi(prefix));
 	const pathWidth = Math.max(24, maxWidth - prefixWidth);
 
-	const wrapped = wrapPath(path, pathWidth);
-
 	// Path is the subject of the tool call — colorize it the same dark blue as
-	// the bash command so every hashline tool render is consistent.
-	return prefix + colorizeCommand(wrapped);
+	// the bash command so every hashline tool render is consistent. The
+	// wrap+colorize is pure and runs on every row rebuild — build once per
+	// (path, width). The spinner-bearing `prefix` stays outside the cache so
+	// the glyph advances per call as before.
+	const styledPath = styledPathCache.get(path, pathWidth, () => colorizeCommand(wrapPath(path, pathWidth)));
+	return prefix + styledPath;
 }
 
 /** Wrap a (possibly styled) path at `width`, hanging subsequent lines 8 spaces. */
@@ -350,10 +368,12 @@ export function settledComponent(
  * on every line.
  */
 export function formatErrorDetail(theme: Theme, message: string): string {
-	return message
-		.split("\n")
-		.map((line) => `${HANGING_INDENT}${theme.fg("error", line)}`)
-		.join("\n");
+	return errorDetailCache.get(message, theme.fg("error", ""), () =>
+		message
+			.split("\n")
+			.map((line) => `${HANGING_INDENT}${theme.fg("error", line)}`)
+			.join("\n"),
+	);
 }
 
 /** Only actual tool errors should render the whole result as red error detail. */
@@ -379,8 +399,15 @@ export class RawText implements Component {
 		this.#text = text;
 	}
 	invalidate() {}
+	/**
+	 * Cached split+truncate keyed by (text, width): every frame re-renders every
+	 * row, and this is the per-keystroke hot path for settled tool output. The
+	 * returned array is shared between calls — treat it as immutable.
+	 */
 	render(width: number): string[] {
-		return this.#text === "" ? [] : this.#text.split("\n").map((line) => truncateToWidth(line, width));
+		return rawTextLinesCache.get(this.#text, width, () =>
+			this.#text === "" ? [] : this.#text.split("\n").map((line) => truncateToWidth(line, width)),
+		);
 	}
 }
 
@@ -413,6 +440,8 @@ export class Column implements Component {
  * description is empty).
  */
 export function descriptionParagraph(text: string, width: number): Component {
-	const lines = text.split("\n").flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
-	return new RawText(colorizeLines(lines.join("\n"), LIGHTER_BLUE));
+	const wrapped = wrappedParagraphCache.get(text, width, () =>
+		text.split("\n").flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width))).join("\n"),
+	);
+	return new RawText(colorizeLines(wrapped, LIGHTER_BLUE));
 }

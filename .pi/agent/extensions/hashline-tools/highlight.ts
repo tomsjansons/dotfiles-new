@@ -58,6 +58,7 @@ import {
 	DARK_BLUE,
 	wrapPath,
 } from "./render";
+import { BuildCache } from "./build-cache";
 
 export type CodeLang = "python" | "javascript" | "typescript" | "tsx" | "jsx" | "json" | "bash" | "yaml" | "markdown" | "css" | "markup";
 
@@ -468,7 +469,21 @@ function colorizeInlineSegment(segment: string): string | null {
  *
  * Kill switch: PI_HASHLINE_CODE_COLOR disables all code coloring.
  */
+/**
+ * Build-once caches (see build-cache.ts) — one entry per (segment, width).
+ * Two caches so the PI_HASHLINE_CODE_COLOR kill switch is honored per call
+ * without colored and plain outputs sharing entries. `colorizeCodeSegment` is
+ * pure for a fixed env flag, so cached output is byte-identical.
+ */
+const codeSegmentCache = new BuildCache<string>();
+const codeSegmentPlainCache = new BuildCache<string>();
+
 export function colorizeCodeSegment(segment: string, wrapWidth?: number): string {
+	const cache = process.env.PI_HASHLINE_CODE_COLOR ? codeSegmentPlainCache : codeSegmentCache;
+	return cache.get(segment, wrapWidth ?? -1, () => buildCodeSegment(segment, wrapWidth));
+}
+
+function buildCodeSegment(segment: string, wrapWidth?: number): string {
 	const fallback = (): string =>
 		colorizeCommand(wrapWidth !== undefined ? wrapPath(segment, wrapWidth) : segment);
 	if (process.env.PI_HASHLINE_CODE_COLOR) return fallback();

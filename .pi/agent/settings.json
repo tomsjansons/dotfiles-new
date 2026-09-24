@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.84.3",
+  "lastChangelogVersion": "0.85.1",
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "zai",
@@ -12,7 +12,8 @@
     "npm:pi-commandcode-provider",
     "npm:pi-continual-harness",
     "npm:@tintinweb/pi-subagents",
-    "npm:pi-loop-police"
+    "npm:pi-loop-police",
+    "npm:pi-mcp-adapter"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",
@@ -27,5 +28,6 @@
     "provider": {
       "maxRetries": 0
     }
-  }
+  },
+  "tuiMode": "fullscreen"
 }
