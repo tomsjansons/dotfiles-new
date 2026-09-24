@@ -1,0 +1,19 @@
+{
+  "widget": {
+    "tooltip": "Static test inbox. Click to open the message list."
+  },
+  "counts": {
+    "new": "new",
+    "unread": "unread"
+  },
+  "panel": {
+    "title": "Inbox",
+    "reset": "Reset to the default unread state",
+    "close": "Close",
+    "column": {
+      "from": "FROM",
+      "subject": "SUBJECT",
+      "time": "TIME"
+    }
+  }
+}
