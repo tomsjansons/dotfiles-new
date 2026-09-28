@@ -1,12 +1,13 @@
 ---
 name: multi-model-review
-description: 'Review a change along four aspects (complexity, correctness, coverage, maintainability) by running one identical review brief through two independent subagents on different models (DeepSeek and GLM), then synthesizing: revalidate every finding, contrast agreements against disagreements, keep what survives and name what was discarded. Use when the user says "multi-model review", or wants a code review cross-checked across models. Mutations (edits, commits, PRs) are done by the main session, never the subagen'
+description: 'Review a change along four aspects (complexity, correctness, coverage, maintainability) by running one identical review brief through three independent subagents on different models (DeepSeek, GLM, MiMo), then synthesizing: revalidate every finding, contrast agreements against disagreements, keep what survives and name what was discarded. Use when the user says "multi-model review", or wants a code review cross-checked across models. Mutations (edits, commits, PRs) are done by the main session, never the subagent'
 ---
 
-One change, one brief, four aspects, two models. Neither reviewer sees the other's report. You (the main session) own the synthesis and every mutation.
+One change, one brief, four aspects, three models. Neither reviewer sees the others' reports. You (the main session) own the synthesis and every mutation.
 
 - Reviewer A (`commandcode/deepseek/deepseek-v4.1-flash`)
-- Reviewer B (`zai/glm-5.3-flash`)
+- Reviewer B (`commandcode/z-ai/glm-5.3-flash`)
+- Reviewer C (`commandcode/xiaomi/mimo-v2.6-flash`)
 
 The four aspects:
 
@@ -21,7 +22,7 @@ The four aspects:
 
 Whatever the user named is the target: a commit SHA, branch, tag, `HEAD~5`, or the working tree. If they named nothing, review the working tree against `HEAD`.
 
-Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison runs against the merge-base), plus the commit list from `git log <fixed-point>..HEAD --oneline`. Confirm the fixed point resolves (`git rev-parse`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside two subagents.
+Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison runs against the merge-base), plus the commit list from `git log <fixed-point>..HEAD --oneline`. Confirm the fixed point resolves (`git rev-parse`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside three subagents.
 
 Then find the requirement the change is meant to satisfy, since correctness and coverage are judged against it. Look for issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`), a path the user passed, or a PRD/spec under `docs/`, `specs/`, or `.scratch/`. If nothing turns up, say so in the brief and have the reviewers judge intent from the code itself.
 
@@ -44,16 +45,17 @@ Demand a verdict on all four aspects, including the ones the change passes. "Com
 
 Done when the brief cannot be executed mutatively and names all four aspects.
 
-### 3. Spawn both reviewers in parallel
+### 3. Spawn all three reviewers in parallel
 
-One message, two `Agent` tool calls, both `subagent_type: general-purpose`, both `run_in_background: false`. Your next action needs both reports. The prompts are identical. The `model` parameter is the only difference:
+One message, three `Agent` tool calls, all `subagent_type: general-purpose`, all `run_in_background: false`. Your next action needs all three reports. The prompts are identical. The `model` parameter is the only difference:
 
 - Reviewer A: `model: "commandcode/deepseek/deepseek-v4.1-flash"`
-- Reviewer B: `model: "zai/glm-5.3-flash"`
+- Reviewer B: `model: "commandcode/z-ai/glm-5.3-flash"`
+- Reviewer C: `model: "commandcode/xiaomi/mimo-v2.6-flash"`
 
-Same brief, both models. Splitting the four aspects between them is the tempting wrong move, since agreement and disagreement only carry signal when both answered the same question.
+Same brief, all three models. Splitting the four aspects between them is the tempting wrong move, since agreement and disagreement only carry signal when all answered the same question.
 
-Wait for both. If one errors, retry it once. If it still fails, synthesize from the survivor and say plainly that only one model answered.
+Wait for all three. If one errors, retry it once. If it still fails, synthesize from the survivors and say plainly which models did not answer.
 
 ### 4. Synthesize
 
@@ -61,8 +63,8 @@ Work in this order:
 
 1. **Restate.** The target, then each model's verdict per aspect in a line or two.
 2. **Revalidate.** Reproduce the finding yourself: read the cited line, run the test, run the type check, grep for the missing sibling. A finding that does not survive is discarded, however precise it sounded. This step may run checks (tests, builds, type checks) but changes nothing tracked.
-3. **Contrast.** Agreements first (consensus, spot-check anything load-bearing), then disagreements, which are where one model named something the other missed or the two verdicts contradict. Decide disagreements on the revalidate evidence, never on confidence or verbosity.
-4. **Assemble.** Build the review from the findings that survived, grouped by aspect and tagged consensus or single-model. Name what was discarded and which model produced it, so the user sees what did not make the cut and why.
+3. **Contrast.** Agreements first (consensus, spot-check anything load-bearing), then disagreements, which are where one model named something the other missed or the verdicts contradict. Decide disagreements on the revalidate evidence, never on confidence or verbosity.
+4. **Assemble.** Build the review from the findings that survived, grouped by aspect and tagged consensus, two-of-three, or single-model. Name what was discarded and which model produced it, so the user sees what did not make the cut and why.
 
 Done when the user has the merged findings plus the discard list.
 
@@ -72,8 +74,8 @@ Apply the accepted fixes yourself now, in the main session, then rerun the check
 
 ## Picking this over code-review
 
-`code-review` splits the work by axis (Standards, Spec) across two subagents and reports the axes side by side without merging. This skill runs the *same* four-aspect brief on two *different models* and merges the results. Reach for this one when you want the cross-model disagreement signal. Reach for `code-review` when the repo has documented standards and an originating spec to hold the change against.
+`code-review` splits the work by axis (Standards, Spec) across two subagents and reports the axes side by side without merging. This skill runs the *same* four-aspect brief on three *different models* and merges the results. Reach for this one when you want the cross-model disagreement signal. Reach for `code-review` when the repo has documented standards and an originating spec to hold the change against.
 
-## Why two models
+## Why three models
 
-Same brief, different training, different blind spots. Agreement is weak evidence, since both models can share a wrong assumption. Disagreement points at where the truth is expensive. The synthesis step is the product. Two reviewers without it just double the noise.
+Same brief, different training, different blind spots. Agreement is weak evidence, since all three models can share a wrong assumption; a two-against-one split is a majority, not a verdict — the revalidate step still decides. Disagreement points at where the truth is expensive. The synthesis step is the product. Three reviewers without it just triple the noise.
