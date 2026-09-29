@@ -1,11 +1,11 @@
 ---
 name: adv-ppp
-description: Reconstruct a week of work from the pi session transcripts in ~/.pi/agent/sessions and write the two weekly artifacts — the PPP (what got done, per project, in Latvian) and the timesheet (hours per day per task). Use when the user asks what they worked on last week, or asks for their PPP or timesheet for a week.
+description: Reconstruct a week of work from the pi session transcripts in ~/.pi/agent/sessions and write the two weekly artifacts — the PPP (what got done, per project, in plain Latvian for a non-technical reader) and the timesheet (hours per day per task). Use when the user asks what they worked on last week, or asks for their PPP or timesheet for a week.
 ---
 
 Two artifacts, one source of truth: the session transcripts under `~/.pi/agent/sessions`.
 
-- **PPP** — what got done, grouped by project, in Latvian.
+- **PPP** — what got done, grouped by project, in plain Latvian for a non-technical reader.
 - **Timesheets** — hours per day per task.
 
 Both are read back by the user every week, so the bar is that a third party could tell what shipped. Never invent a line — an hour or an outcome you cannot point at in the transcripts or a tracker is a fabrication.
@@ -51,28 +51,43 @@ All sessions sharing a worktree are one task. Drill once per worktree, not once 
 
 ### 4. Enrich from the tracker
 
-The digest gives issue *numbers*; the PPP needs titles and outcomes. Resolve them where a tracker exists — `gh issue view <n> --json title,state` against the project repo, or the Linear MCP for `ADV-###`. The AdvanGrid repo is `AdvanGrid/advangrid` at `~/dev/advangrid`; `gh pr list` and `gh pr view` fill in what actually merged.
+The digest gives issue *numbers*; you need titles and, above all, whether the thing actually shipped. Resolve them where a tracker exists — `gh issue view <n> --json title,state` against the project repo, or the Linear MCP for `ADV-###`. The AdvanGrid repo is `AdvanGrid/advangrid` at `~/dev/advangrid`; `gh pr list` and `gh pr view` fill in what merged.
 
-A number with no fetched title stays a number.
+A number with no fetched title stays a number. The numbers are for the timesheet and for your own confidence about what shipped — they never reach the PPP.
 
 ### 5. Write the PPP
 
-Latvian, latest state of the week first, and organised by project:
+Written for someone who does not read code: a manager who wants to know what now works, what it bought, and what comes next. Latvian, organised by project, latest state of the week first.
 
 ```markdown
 Paveikts
 
-- Enerģijas Auditi - {viena teikuma kopsavilkums par stāvokli}
-    - {konkrēts rezultāts, ar #issue/#PR numuru}
-    - {konkrēts rezultāts}
+- Enerģijas Auditi - {kur projekts šobrīd atrodas, vienā teikumā}
+    - {kas vairs nenotiek un ko tas nozīmē klientam vai komandai}
+    - {ko tas atver tālāk}
 - Mārketinga/sales aktivitātes - {viena teikuma kopsavilkums}
 - Failiem.lv agents - {viena teikuma kopsavilkums}
 ```
 
-Project headings and their order come from the map at the bottom of this file. Within a project, lead with the biggest outcome of the week; the project's summary line says where it *stands* ("redzu gaismu tuneļa galā, palikušas 2 problēmas"), and the nested bullets are the individual things that got done.
-Phrase every bullet as an outcome — "novērsu X", "izrevidēju PR #1471", "atklāju cēloni" — not as activity ("strādāju pie X"). Name issue and PR numbers; they are what makes the report checkable.
+Project headings and their order come from the map at the bottom of this file. The project's own line says where it *stands* — "redzu gaismu tuneļa galā, palikušas 2 problēmas" beats "pabeigti 11 labojumi".
 
-Drop the tooling and personal-work items unless they produced something the company would recognise (a new skill, a process change). A week with little in it says so in one line.
+Every nested line answers at least one of: **what it helps with**, **what it opens up**, **how it improves the product, the infra, or the setup**. A line that only names the work ("strādāju pie X", "pārrakstīju Y") is not finished — say what the reader gets. Where a project moved toward a milestone, say how far.
+
+**Group before you write.** A week of fifteen issues is two or three plain-language problems, not fifteen bullets. Fixes that removed the same class of breakage belong under one heading; a week of design and infrastructure work usually collapses into the project's summary line with no bullets at all. Fewer, broader lines read as confidence; an exhaustive list reads as noise.
+
+**Translate, do not transcribe.** Real pairs from a week this skill was built against:
+
+| the sessions say | the PPP says |
+| --- | --- |
+| `#1413` anomaly-list-sort-memory: 500 on the anomalies list, memory-bound sort | Anomāliju procesēšanās kļūdas |
+| `#1415` file statuses: remapped the event→status model | Failu statusu atrādīšanas kļūdas |
+| `#1379`/`#1378`/`#1408` state-model rework, pipeline redesign, platform spike | (absorbed into the project's summary line) |
+
+Mechanisms are not outcomes. "Sandbox", "event loop", "heap", "session", "canonical data", "pipeline", "PR stack", "refactor" and every file, function and library name stay out. The outcome is what the mechanism bought: audits that used to stall now finish, the client's files all load, the team is no longer blocked on the old bottleneck. Keep numbers the reader cares about — failures eliminated, clients unblocked, hours saved — and drop the rest.
+
+Drop tooling and personal-work items unless they produced something the company would recognise (a new capability, a process change). A project with nothing shippable behind it gets no heading, not an empty one; a week with little in it says so in one line.
+
+Before moving on, read the finished PPP as the manager would. Any line that would earn a follow-up question is not finished.
 
 ### 6. Write the timesheets
 
@@ -80,8 +95,8 @@ One line per day per task, hours rounded to the nearest 0.5:
 
 ```markdown
 2026-09-24 - 1h - Planning
-2026-09-24 - 4h - ADV-160 kanonisko datu apvienošana: spec, PR stack, multi-model review
-2026-09-24 - 2h - #1487 heap OOM: pod logu analīze, heap snapshot
+2026-09-24 - 4h - ADV-160 canonical-data merge: spec, PR stack, multi-model review
+2026-09-24 - 2h - #1487 heap OOM: pod log forensics, heap snapshot
 ```
 
 Built from the ACTIVITY view in this order:
@@ -91,13 +106,14 @@ Built from the ACTIVITY view in this order:
 3. Weekday totals land at 8h. Where the sessions fall short, **say so** — `2.5h not in sessions (meetings? calls?)` — and let the user add the meetings, calls and off-machine work the transcripts cannot see. Never pad the session lines to close the gap.
 
 Weekend days carry only what the sessions show, with no Planning line.
+
 ### 7. Report
 
 Print both sections in the chat, in that order. Then add a short list of what to check: the days closest to light, anything that looked unresolved at the end of the week, and any project where a tracker lookup failed.
 
 ## Project map
 
-The `project/detail` label the script prints maps to the PPP heading and the timesheet's language. Edit this table when the reporting changes.
+The `project/detail` label the script prints maps to the PPP heading. Order in the PPP follows this table; edit both together when the reporting changes.
 
 | script label | PPP heading | notes |
 | --- | --- | --- |
@@ -110,4 +126,6 @@ The `project/detail` label the script prints maps to the PPP heading and the tim
 | `home` | — | this report itself, skill authoring, research; usually omitted |
 | `other` | — | inspect the `cwd` and decide |
 
-Order in the PPP follows this table. Timesheet lines stay in English, using the tracker's own task names.
+Two audiences, two registers. The PPP goes to people who do not read code; the timesheet goes to whoever tracks the hours. Numbers, jargon and the tracker's own task names belong in the timesheet and nowhere else.
+
+Order in the PPP follows this table.
