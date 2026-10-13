@@ -35,14 +35,14 @@ vim.api.nvim_create_autocmd("PackChanged", {
 
 vim.pack.add({
 	{ src = "https://github.com/Saghen/blink.lib" },
-	{
-		src = "https://github.com/Saghen/blink.cmp",
-		version = "v1.8.0",
-		build = function()
-			require("blink.cmp").build():pwait()
-		end,
-	},
+	{ src = "https://github.com/Saghen/blink.cmp" },
 })
+
+-- PackChanged only fires on install/update, so build here too if the native
+-- library is missing (e.g. a failed or skipped build).
+if not require("blink.cmp").library_available() then
+	build_blink()
+end
 
 require("blink.cmp").setup({
 	sources = {
