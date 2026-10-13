@@ -1,9 +1,9 @@
 ---
 name: adv-ppp
-description: Reconstruct a week of work from the pi session transcripts in ~/.pi/agent/sessions and write the two weekly artifacts — the PPP (what got done, per project, in plain Latvian for a non-technical reader) and the timesheet (hours per day per task). Use when the user asks what they worked on last week, or asks for their PPP or timesheet for a week.
+description: Reconstruct a week of work from the pi and Claude Code session transcripts (~/.pi/agent/sessions, ~/.claude/projects) and write the two weekly artifacts — the PPP (what got done, per project, in plain Latvian for a non-technical reader) and the timesheet (hours per day per task). Use when the user asks what they worked on last week, or asks for their PPP or timesheet for a week.
 ---
 
-Two artifacts, one source of truth: the session transcripts under `~/.pi/agent/sessions`.
+Two artifacts, one source of truth: the session transcripts from both harnesses — pi under `~/.pi/agent/sessions` and Claude Code under `~/.claude/projects`. The scanner reads both into one digest, so a week split across them is still one week.
 
 - **PPP** — what got done, grouped by project, in plain Latvian for a non-technical reader.
 - **Timesheets** — hours per day per task.
@@ -30,10 +30,10 @@ python3 ~/.agents/skills/adv-ppp/scan-sessions.py --from <mon> --to <sun>
 
 Read the whole output before writing anything. It has two views:
 
-- **SESSIONS** — one line per top-level session, grouped by project: in-range active hours, the days touched, the issue ref from the worktree slug, a `+Nsub` count, and the best statement of what the session was about.
-- **ACTIVITY** — hours per day per worktree, derived from every event timestamp including sub-agents, with idle gaps over 30 minutes dropped. This is the timesheet's skeleton.
+- **SESSIONS** — one line per top-level session, grouped by project: the harness (`pi` or `cc`), in-range active hours, the days touched, the issue ref from the worktree slug, a `+Nsub` count, and the best statement of what the session was about.
+- **ACTIVITY** — hours per day per worktree, derived from every event timestamp across both harnesses including sub-agents, with idle gaps over 30 minutes dropped. Time spent with pi and Claude Code open side by side counts once. This is the timesheet's skeleton.
 
-Add `--json /tmp/week.json` when you want to sort or filter the sessions programmatically instead of re-parsing the prose.
+Pass `--claude-root ''` to scan pi alone. Add `--json /tmp/week.json` when you want to sort or filter the sessions programmatically instead of re-parsing the prose.
 
 Done when every project you are about to report on has a session line behind it, and every weekday in the range has an activity total.
 
@@ -45,7 +45,9 @@ Some session lines say `(no user prompt)` or carry one word (`agreed`, `q1: 1`) 
 python3 ~/.agents/skills/adv-ppp/scan-sessions.py --session <slug> --limit 15
 ```
 
-That prints the compaction goals, the user's own prompts, and the assistant's verdicts, which is enough to write the bullet. `--session` accepts a filename prefix, so the first few characters of the slug work.
+That prints the compaction goals, the user's own prompts, and the assistant's verdicts (plus Claude Code's away recaps), which is enough to write the bullet. `--session` accepts a filename prefix, so the first few characters of the slug work — for Claude Code that is the session uuid.
+
+Claude Code sessions show the slash command as the prompt (`/adv-eng-loop 1225`). Where the first prompt is a single word, the line falls back to Claude Code's own session title.
 
 All sessions sharing a worktree are one task. Drill once per worktree, not once per session.
 
@@ -122,6 +124,8 @@ The `project/detail` label the script prints maps to the PPP heading. Order in t
 | `devinator` | Devinator | |
 | `failiem-agent` | Failiem.lv agents | |
 | `ino-day` | Ieviņas diena | pitch deck and copy work |
+| `hermis/growth` | Mārketinga/sales aktivitātes | Claude Code in `~/hermis-agent-workspaces`; sales outreach projects |
+| `hermis/operations` | — | ops errands for the company (presentations, files); fold into the project they served |
 | `bash-ok`, `show-me` | — | only if something shippable came out of it |
 | `home` | — | this report itself, skill authoring, research; usually omitted |
 | `other` | — | inspect the `cwd` and decide |

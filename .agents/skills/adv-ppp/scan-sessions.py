@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Digest ~/.pi/agent/sessions into a work log for a date range.
+"""Digest pi and Claude Code session transcripts into a work log for a date range.
+
+Sources: ~/.pi/agent/sessions (pi) and ~/.claude/projects (Claude Code). Both
+are read into the same session shape, so every view below covers both.
 
 Two views of the same raw material:
 
   SESSIONS   - one line per top-level session: project, issue ref, in-range
                window, and the best available statement of what it was about
-               (compaction goal > branch summary goal > first real user prompt).
+               (compaction goal > branch summary goal > first real user prompt >
+               Claude Code's ai-title). Tagged pi or cc.
                Sub-agent transcripts are folded into their parent's count.
   ACTIVITY   - every event timestamp from every session (main + sub-agent),
                merged into blocks with an idle-gap threshold, split per local
@@ -15,6 +19,7 @@ Usage:
   scan-sessions.py --from 2026-09-21 --to 2026-09-27
   scan-sessions.py --from 2026-09-21 --to 2026-09-27 --json /tmp/week.json
   scan-sessions.py --session 2026-09-25T07-46-16-771Z_01a0d787-8041-70dc-a164-52958e9dbff7.jsonl
+  scan-sessions.py --session db9430ed       # Claude Code session uuid prefix
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 SESSIONS_ROOT = os.path.expanduser("~/.pi/agent/sessions")
+CLAUDE_ROOT = os.path.expanduser("~/.claude/projects")
 
 # Prompts that are harness expansions or delegated briefs, never the user's own ask.
 SYNTHETIC_PROMPT = re.compile(
@@ -87,12 +93,45 @@ def goal_of(summary):
     return " ".join(lines)
 
 
+def claude_goal(summary):
+    """Pull the 'Primary Request and Intent' body out of a Claude Code compaction."""
+    m = re.search(r"Primary Request and Intent:\s*\n(.+?)(?=\n\d+\.\s|\Z)", summary or "", re.S)
+    if not m:
+        return ""
+    return " ".join(ln.strip() for ln in m.group(1).splitlines() if ln.strip())
+
+
+def claude_prompt(content):
+    """The user's own words from a Claude Code user record, or "" for tool results.
+
+    Slash commands are stored as <command-name>/x</command-name><command-args>…;
+    they render as "/x args" so the ask survives.
+    """
+    if isinstance(content, list):
+        if any(isinstance(p, dict) and p.get("type") == "tool_result" for p in content):
+            return ""
+        content = block_text(content)
+    if not isinstance(content, str):
+        return ""
+    name = re.search(r"<command-name>(.*?)</command-name>", content, re.S)
+    if name:
+        args = re.search(r"<command-args>(.*?)</command-args>", content, re.S)
+        args = args.group(1).strip() if args else ""
+        # Bare /clear, /compact and the like say nothing about the work.
+        return f"{name.group(1).strip()} {args}" if args else ""
+    # Task notifications, bash-mode echoes and other harness wrappers.
+    return "" if content.lstrip().startswith("<") else content
+
+
 def project_of(cwd):
     """(base, detail) - base groups work, detail is the worktree/topic."""
     cwd = cwd or ""
-    m = re.match(r"/home/tomsj/\.herdr/worktrees/([^/]+)/(.+)", cwd)
+    m = re.match(r"/home/tomsj/\.herdr/worktrees/([^/]+)/([^/]+)", cwd)
     if m:
         return (m.group(1), m.group(2))
+    m = re.match(r"/home/tomsj/hermis-agent-workspaces/([^/]+)", cwd)
+    if m:
+        return ("hermis", m.group(1))
     m = re.match(r"/home/tomsj/dev/(.+)", cwd)
     if m:
         return (m.group(1), "")
@@ -117,7 +156,98 @@ def issue_ref(detail):
     return ""
 
 
+def pick_task(goals, prompts, title=""):
+    for g in goals:
+        if len(g) > WEAK_TASK:
+            return g, "goal"
+    real = [t for t in (re.sub(r"\s+", " ", p).strip() for p in prompts) if t]
+    first = next((t for t in real if not SYNTHETIC_PROMPT.match(t)), "")
+    # A one-word first prompt ("agreed", "1") loses to Claude Code's ai-title.
+    if first and (len(first) > WEAK_TASK or not title):
+        return first, "prompt"
+    if title:
+        return title, "title"
+    if real:
+        return real[0], "prompt"
+    return "", ""
+
+
+def session_record(path, harness, cwd, parent, events, task, source):
+    return {
+        "file": path,
+        "slug": os.path.basename(path),
+        "harness": harness,
+        "cwd": cwd,
+        "parent": parent,
+        "events": sorted(events),
+        "task": task,
+        "source": source,
+        "weak": len(task) <= WEAK_TASK,
+        "subagents": 0,
+    }
+
+
+def json_lines(path):
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                yield obj
+
+
+def is_claude(path):
+    return os.path.abspath(path).startswith(os.path.abspath(CLAUDE_ROOT) + os.sep) or not any(
+        o.get("type") == "session" for _, o in zip(range(3), json_lines(path))
+    )
+
+
 def load_session(path):
+    return load_claude_session(path) if is_claude(path) else load_pi_session(path)
+
+
+def load_claude_session(path):
+    """Claude Code transcript: <project>/<uuid>.jsonl, sub-agents under <uuid>/subagents/."""
+    cwd = None
+    events = []
+    prompts = []
+    goals = []
+    title = ""
+    parts = os.path.normpath(path).split(os.sep)
+    parent = None
+    if "subagents" in parts:
+        parent = parts[parts.index("subagents") - 1] + ".jsonl"
+
+    for obj in json_lines(path):
+        ts = parse_iso(obj.get("timestamp", ""))
+        if ts:
+            events.append(ts)
+        if not cwd and obj.get("cwd"):
+            cwd = obj["cwd"]
+        kind = obj.get("type")
+        if kind == "ai-title":
+            title = obj.get("aiTitle") or title
+        elif kind == "user" and not obj.get("isMeta"):
+            content = (obj.get("message") or {}).get("content")
+            if obj.get("isCompactSummary"):
+                g = claude_goal(block_text(content))
+                if g:
+                    goals.append(g)
+            else:
+                prompts.append(claude_prompt(content))
+
+    if not events:
+        return None
+    task, source = pick_task(goals, prompts, title)
+    return session_record(path, "cc", cwd, parent, events, task, source)
+
+
+def load_pi_session(path):
     cwd = parent = None
     events = []
     prompts = []
@@ -154,38 +284,25 @@ def load_session(path):
 
     if not events:
         return None
-
-    task = ""
-    source = ""
-    for g in goals:
-        if len(g) > WEAK_TASK:
-            task, source = g, "goal"
-            break
-    if not task:
-        for p in prompts:
-            t = re.sub(r"\s+", " ", p).strip()
-            if t and not SYNTHETIC_PROMPT.match(t):
-                task, source = t, "prompt"
-                break
-    if not task and prompts:
-        task, source = re.sub(r"\s+", " ", prompts[0]).strip(), "prompt"
-
-    return {
-        "file": path,
-        "slug": os.path.basename(path),
-        "cwd": cwd,
-        "parent": parent,
-        "events": events,
-        "task": task,
-        "source": source,
-        "weak": len(task) <= WEAK_TASK,
-        "subagents": 0,
-    }
+    task, source = pick_task(goals, prompts)
+    return session_record(path, "pi", cwd, parent, events, task, source)
 
 
-def collect(root, tz, lo, hi):
+def transcript_paths(root, claude_root):
+    paths = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
+    if claude_root:
+        # Top-level <uuid>.jsonl plus agent-*.jsonl sub-agents; skips workflow journals.
+        paths += sorted(glob.glob(os.path.join(claude_root, "*", "*.jsonl")))
+        paths += sorted(
+            glob.glob(os.path.join(claude_root, "*", "*", "subagents", "**", "agent-*.jsonl"),
+                      recursive=True)
+        )
+    return paths
+
+
+def collect(root, claude_root, tz, lo, hi):
     sessions = []
-    for path in sorted(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)):
+    for path in transcript_paths(root, claude_root):
         if NOISE.search(path):
             continue
         try:
@@ -289,7 +406,7 @@ def report_range(sessions, tz, start, end, gap_minutes, as_json):
                     prior = f" (started {s['carried']:%b %d})"
                 days = ",".join(f"{d:%a}" for d in sorted(s["days"]))
                 print(
-                    f"  {s['active_h']:4.1f}h  {days:>14}  "
+                    f"  {s['harness']}  {s['active_h']:4.1f}h  {days:>14}  "
                     f"{s['span_start']:%H:%M}-{s['span_end']:%H:%M}"
                     f"{tag}{topic}{sub}{prior}"
                 )
@@ -321,6 +438,7 @@ def report_range(sessions, tz, start, end, gap_minutes, as_json):
             "sessions": [
                 {
                     "slug": s["slug"],
+                    "harness": s["harness"],
                     "project": s["base"],
                     "detail": s["detail"],
                     "issue": s["issue"],
@@ -347,6 +465,54 @@ def report_range(sessions, tz, start, end, gap_minutes, as_json):
         print(f"wrote {as_json}", file=sys.stderr)
 
 
+def assistant_says(msg):
+    content = msg.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                t = squeeze(part.get("text"), 400)
+                if len(t) > 120:
+                    yield t
+
+
+def pi_items(path):
+    for obj in json_lines(path):
+        kind = obj.get("type")
+        ts = parse_iso(obj.get("timestamp", ""))
+        if kind in ("compaction", "branch_summary"):
+            g = goal_of(obj.get("summary")) or squeeze(obj.get("summary"), 400)
+            yield ts, kind.upper(), squeeze(g, 500)
+        elif kind == "message":
+            msg = obj.get("message") or {}
+            if msg.get("role") == "user":
+                t = squeeze(block_text(msg.get("content")), 500)
+                if t and not SYNTHETIC_PROMPT.match(t):
+                    yield ts, "USER", t
+            elif msg.get("role") == "assistant":
+                for t in assistant_says(msg):
+                    yield ts, "SAYS", t
+
+
+def claude_items(path):
+    for obj in json_lines(path):
+        kind = obj.get("type")
+        ts = parse_iso(obj.get("timestamp", ""))
+        msg = obj.get("message") or {}
+        if kind == "user" and not obj.get("isMeta"):
+            if obj.get("isCompactSummary"):
+                text = block_text(msg.get("content"))
+                yield ts, "COMPACTION", squeeze(claude_goal(text) or text, 500)
+                continue
+            t = squeeze(claude_prompt(msg.get("content")), 500)
+            if t and not SYNTHETIC_PROMPT.match(t):
+                yield ts, "USER", t
+        elif kind == "assistant":
+            for t in assistant_says(msg):
+                yield ts, "SAYS", t
+        elif kind == "system" and obj.get("subtype") == "away_summary":
+            yield ts, "RECAP", squeeze(obj.get("content"), 500)
+
+
 def report_session(path, tz, limit):
     """Readable transcript sketch for one session, for the drill-down step."""
     s = load_session(path)
@@ -363,42 +529,14 @@ def report_session(path, tz, limit):
     print()
 
     shown = 0
-    with open(path, errors="replace") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except ValueError:
-                continue
-            kind = obj.get("type")
-            ts = parse_iso(obj.get("timestamp", ""))
-            stamp = f"{ts.astimezone(tz):%a %d %H:%M}" if ts else " " * 12
-            if kind in ("compaction", "branch_summary"):
-                g = goal_of(obj.get("summary")) or squeeze(obj.get("summary"), 400)
-                print(f"[{stamp}] {kind.upper()}: {squeeze(g, 500)}\n")
-                shown += 1
-            elif kind == "message":
-                msg = obj.get("message") or {}
-                role = msg.get("role")
-                if role == "user":
-                    t = squeeze(block_text(msg.get("content")), 500)
-                    if t and not SYNTHETIC_PROMPT.match(t):
-                        print(f"[{stamp}] USER: {t}\n")
-                        shown += 1
-                elif role == "assistant":
-                    content = msg.get("content")
-                    if isinstance(content, list):
-                        for part in content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                t = squeeze(part.get("text"), 400)
-                                if len(t) > 120:
-                                    print(f"[{stamp}] SAYS: {t}\n")
-                                    shown += 1
-            if shown >= limit:
-                print(f"... truncated at {limit} items")
-                break
+    items = claude_items(path) if s["harness"] == "cc" else pi_items(path)
+    for ts, kind, text in items:
+        stamp = f"{ts.astimezone(tz):%a %d %H:%M}" if ts else " " * 12
+        print(f"[{stamp}] {kind}: {text}\n")
+        shown += 1
+        if shown >= limit:
+            print(f"... truncated at {limit} items")
+            break
     return 0
 
 
@@ -416,7 +554,9 @@ def main():
     ap.add_argument("--to", dest="end", help="YYYY-MM-DD local, inclusive")
     ap.add_argument("--tz", default="Europe/Riga")
     ap.add_argument("--gap", type=int, default=30, help="idle minutes that end a block")
-    ap.add_argument("--root", default=SESSIONS_ROOT)
+    ap.add_argument("--root", default=SESSIONS_ROOT, help="pi sessions")
+    ap.add_argument("--claude-root", default=CLAUDE_ROOT,
+                    help="Claude Code projects; pass '' to skip")
     ap.add_argument("--json", dest="json_out", help="also write a machine-readable digest")
     ap.add_argument("--session", help="drill into one session file (path or basename)")
     ap.add_argument("--limit", type=int, default=60, help="items printed by --session")
@@ -428,6 +568,8 @@ def main():
         path = args.session
         if not os.path.exists(path):
             hits = glob.glob(os.path.join(args.root, "**", f"*{path}*"), recursive=True)
+            if args.claude_root:
+                hits += glob.glob(os.path.join(args.claude_root, "*", f"{path}*.jsonl"))
             if not hits:
                 print(f"no session matching {path}", file=sys.stderr)
                 return 1
@@ -440,7 +582,7 @@ def main():
 
     lo = datetime.datetime.fromisoformat(args.start).replace(tzinfo=tz)
     hi = datetime.datetime.fromisoformat(args.end).replace(tzinfo=tz) + datetime.timedelta(days=1)
-    sessions, _ = collect(args.root, tz, lo, hi)
+    sessions, _ = collect(args.root, args.claude_root, tz, lo, hi)
     report_range(sessions, tz, args.start, args.end, args.gap, args.json_out)
     return 0
 
