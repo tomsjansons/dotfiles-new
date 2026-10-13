@@ -1,6 +1,6 @@
 ---
 name: multi-model-review
-description: 'Review a change along focus points (cohesion, correctness, edge cases, complexity trajectory, maintainability) by running one identical review brief through three independent subagents on different models (DeepSeek, GLM, MiMo), then synthesizing: revalidate every finding, contrast agreements against disagreements, keep what survives and name what was discarded. Writes two dark-themed HTML reports — {task-id}-review.html and {task-id}-diagram.html — to ~/dev/show-me, following the show-me skill. Use when the user says "multi-model review", or wants a code review cross-checked across models. Mutations (edits, commits, PRs) are done by the main session, never the subagents'
+description: 'Review a change along focus points (cohesion, correctness, edge cases, complexity trajectory, maintainability) by running one identical review brief through three independent subagents on different models (DeepSeek, GLM, MiMo), then synthesizing: revalidate every finding, contrast agreements against disagreements, keep what survives and name what was discarded. Presents the result as two reports — {task-id}-review.html and {task-id}-diagram.html — via the show-me skill. Use when the user says "multi-model review", or wants a code review cross-checked across models. Mutations (edits, commits, PRs) are done by the main session, never the subagents'
 ---
 
 One change, one brief, a focus list, three models. Neither reviewer sees the others' reports. You (the main session) own the synthesis, the HTML reports, and every mutation.
@@ -75,14 +75,12 @@ Done when the user has the merged findings plus the discard list.
 
 Everything in the reports comes from what survived step 4 — nothing gets a pretty picture that failed revalidation.
 
-Write two dark-themed HTML files in `~/dev/show-me/`, following the show-me skill for the artifact itself (read it first if it isn't already in context): one focused file, the smallest view that makes the point clear, real labels and code from this change (no lorem, no placeholder diagrams), legible on desktop and mobile. Skip either file the user said they didn't want.
+Use the show-me skill to present the result: read `.agents/skills/show-me/SKILL.md` first if it isn't already in context, and follow it for how each file is written, themed, and handed to the user. This step decides only what goes in them. Two reports, one focused view each, carrying real labels and code from this change (no lorem, no placeholder diagrams). Skip either the user said they didn't want.
 
 - **`{task-id}-review.html`** — the review as a visual report: one section per focus point; every finding tagged consensus / two-of-three / single-model with file and line; the quoted hunk or a small before → after code example illustrating each problem; compact diagrams (Mermaid or inline SVG) where a schema beats prose; the discard list at the end, with which model produced each discarded finding.
 - **`{task-id}-diagram.html`** — how the change sits in the system: data flow through the touched components, including the shapes that flow between them; trigger and decision logic as a flow or sequence; and what the change shares between parts (prompts, machinery, types) plus who owns each side. If the user asked for specific diagrams, those lead and these three are the defaults.
 
-Both files are dark themed: dark background, light text, `color-scheme: dark`, code and diagram styling that reads on dark.
-
-If the user asked only for diagrams — no review — skip steps 2–4: still pin the target and read the real code, then write only `{task-id}-diagram.html`.
+If the user asked only for diagrams — no review — skip steps 2–4: still pin the target and read the real code, then produce only `{task-id}-diagram.html`.
 
 ### 6. Mutate (main session only)
 
