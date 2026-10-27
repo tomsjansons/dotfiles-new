@@ -14,7 +14,8 @@
 # tmux session.
 #
 # Also removes herdr worktrees (~/.herdr/worktrees) that no open herdr
-# workspace or pane uses, stopped podman containers/pods (k3d clusters kept),
+# workspace or pane uses, Claude Code worktrees (<repo>/.claude/worktrees)
+# whose sessions have been idle for over a week, stopped podman containers/pods (k3d clusters kept),
 # and every podman image no remaining container uses.
 #
 # Usage: orp-cleanup [-n|--dry-run] [-y|--yes]
@@ -139,6 +140,40 @@ orp-cleanup() {
     fi
   fi
 
+  # 4b. Claude Code worktrees (<repo>/.claude/worktrees/<name>) whose sessions
+  # have been idle for over a week. Activity is the newest transcript mtime:
+  # for agent-<id> worktrees the subagent transcript plus its parent session,
+  # otherwise the sessions recorded for the worktree path itself. Without any
+  # transcript, the worktree's git index mtime stands in. Kept regardless when
+  # a herdr pane or a running process is inside it.
+  local claude_projects="$HOME/.claude/projects" newest idle_cutoff
+  local -a claude_worktrees proc_cwds activity
+  zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+  idle_cutoff=$(( EPOCHSECONDS - 7 * 86400 ))
+  proc_cwds=(${(f)"$(for p in /proc/<->/cwd(N); do print -r -- "${p:A}"; done 2>/dev/null)"})
+  for wt in "$HOME"/dev/*/.claude/worktrees/*(N/) "$herdr_root"/*/*/.claude/worktrees/*(N/); do
+    live=0
+    for p in "${herdr_paths[@]}" "${proc_cwds[@]}"; do
+      [[ "$p" == "$wt" || "$p" == "$wt"/* ]] && { live=1; break }
+    done
+    (( live )) && continue
+    activity=()
+    if [[ "${wt:t}" == agent-* ]]; then
+      for p in "$claude_projects"/*/*/subagents/"${wt:t}".jsonl(N); do
+        activity+=("$p" "${p:h:h}.jsonl"(N))
+      done
+    fi
+    activity+=("$claude_projects/${wt//[^A-Za-z0-9]/-}"/*.jsonl(N))
+    if (( ! ${#activity} )); then
+      p="$(git -C "$wt" rev-parse --path-format=absolute --git-path index 2>/dev/null)"
+      [[ -e "$p" ]] && activity=("$p")
+    fi
+    newest="$(stat -c %Y -- "${activity[@]}" 2>/dev/null | sort -n | tail -n 1)"
+    (( ${newest:-0} < idle_cutoff )) || continue
+    claude_worktrees+=("$wt")
+    [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null | head -n 1)" ]] && dirty_worktrees+=("${wt/#$HOME/~}")
+  done
+
   # 5. old podman state: stopped containers (except k3d clusters, which
   # 'k3d cluster start' needs), exited pods, and every image no container uses.
   local -a old_containers old_pods
@@ -153,7 +188,7 @@ orp-cleanup() {
   fi
 
   if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} \
-        && ! ${#orphan_worktrees} && ! ${#old_containers} && ! ${#old_pods} )) && [[ -z "$images_reclaim" ]]; then
+        && ! ${#orphan_worktrees} && ! ${#claude_worktrees} && ! ${#old_containers} && ! ${#old_pods} )) && [[ -z "$images_reclaim" ]]; then
     print -r -- "orp-cleanup: nothing to clean up."
     return 0
   fi
@@ -171,8 +206,13 @@ orp-cleanup() {
     print -r -- "  herdr worktrees: ${#orphan_worktrees} not open in herdr"
     local -a wt_names=("${(@)orphan_worktrees#$herdr_root/}")
     print -rl -- "${(@)wt_names/#/    }"
-    (( ${#dirty_worktrees} )) && print -r -- "    with uncommitted changes (lost on removal): ${(j: :)dirty_worktrees}"
   fi
+  if (( ${#claude_worktrees} )); then
+    print -r -- "  claude worktrees: ${#claude_worktrees} idle for over a week"
+    local -a cwt_names=("${(@)claude_worktrees/#$HOME/~}")
+    print -rl -- "${(@)cwt_names/#/    }"
+  fi
+  (( ${#dirty_worktrees} )) && print -r -- "  worktrees with uncommitted changes (lost on removal): ${(j: :)dirty_worktrees}"
   (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d kept)"
   (( ${#old_pods} ))       && print -r -- "  podman:          ${#old_pods} exited pods"
   [[ -n "$images_reclaim" ]] && print -r -- "  podman:          unused images, ~$images_reclaim reclaimable"
@@ -228,8 +268,8 @@ orp-cleanup() {
 
   # Let git drop its worktree record; plain rm for dirs git no longer knows.
   local -A wt_repos
-  for wt in "${orphan_worktrees[@]}"; do
-    print -r -- "removing worktree ${wt#$herdr_root/}"
+  for wt in "${orphan_worktrees[@]}" "${claude_worktrees[@]}"; do
+    print -r -- "removing worktree ${wt/#$HOME/~}"
     common="$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
     if [[ -n "$common" ]]; then
       wt_repos[$common]=1
