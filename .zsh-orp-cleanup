@@ -13,6 +13,10 @@
 # compose project or state dir is orphaned when its slot has no surviving
 # tmux session.
 #
+# Also removes herdr worktrees (~/.herdr/worktrees) that no open herdr
+# workspace or pane uses, stopped podman containers/pods (k3d clusters kept),
+# and every podman image no remaining container uses.
+#
 # Usage: orp-cleanup [-n|--dry-run] [-y|--yes]
 orp-cleanup() {
   local dry_run=0 assume_yes=0
@@ -36,6 +40,15 @@ orp-cleanup() {
   if (( $+commands[herdr] && $+commands[jq] )); then
     live_worktrees=(${(f)"$(herdr workspace list 2>/dev/null \
       | jq -r '.result.workspaces[] | .worktree.checkout_path // empty' 2>/dev/null)"})
+  fi
+
+  # A slot whose recorded worktree is open in herdr is live even when its tmux
+  # session is gone (e.g. after a tmux server restart).
+  if (( ${#live_worktrees} )) && [[ -d "$state_root" ]]; then
+    for d in "$state_root"/<->(N/); do
+      cwd="$(sed -n 's/^WORKTREE_PATH=//p' "$d/env" 2>/dev/null | head -n 1)"
+      [[ -n "$cwd" && " ${live_worktrees[*]} " == *" $cwd "* ]] && live_slots[${d:t}]=1
+    done
   fi
 
   # 1. tmux sessions advangrid-<slot> orphaned by closed herdr workspaces.
@@ -100,8 +113,48 @@ orp-cleanup() {
     done
   fi
 
-  if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} )); then
-    print -r -- "orp-cleanup: no orphaned advangrid dev environments found."
+  # 4. herdr worktrees (~/.herdr/worktrees/<repo>/<name>) that no open herdr
+  # workspace or pane points into. Skipped entirely unless herdr answers, so a
+  # dead server never reads as "nothing is open".
+  local herdr_root="$HOME/.herdr/worktrees" herdr_json wt p live common
+  local -a herdr_paths orphan_worktrees dirty_worktrees
+  if [[ -d "$herdr_root" ]] && (( $+commands[herdr] && $+commands[jq] )); then
+    herdr_json="$( { herdr workspace list; herdr pane list; } 2>/dev/null)"
+    if [[ "$herdr_json" == *workspace_list* && "$herdr_json" == *panes* ]]; then
+      herdr_paths=(${(f)"$(print -r -- "$herdr_json" | jq -r '
+          (.result.workspaces[]? | .worktree.checkout_path // empty),
+          (.result.panes[]? | .cwd // empty, .foreground_cwd // empty)' 2>/dev/null \
+        | sed 's/ (deleted)$//')"})
+      for wt in "$herdr_root"/*/*(N/); do
+        live=0
+        for p in "${herdr_paths[@]}"; do
+          [[ "$p" == "$wt" || "$p" == "$wt"/* ]] && { live=1; break }
+        done
+        (( live )) && continue
+        orphan_worktrees+=("$wt")
+        [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null | head -n 1)" ]] && dirty_worktrees+=("${wt#$herdr_root/}")
+      done
+    else
+      print -u2 -- "orp-cleanup: herdr not responding; skipping worktree cleanup."
+    fi
+  fi
+
+  # 5. old podman state: stopped containers (except k3d clusters, which
+  # 'k3d cluster start' needs), exited pods, and every image no container uses.
+  local -a old_containers old_pods
+  local images_reclaim=""
+  if (( $+commands[docker] )); then
+    old_containers=(${(f)"$(docker ps -a --filter status=exited --filter status=created \
+      --format '{{.ID}} {{.Label "app"}}' 2>/dev/null | awk '$2 != "k3d" { print $1 }')"})
+    old_pods=(${(f)"$(docker pod ls -q --filter status=exited 2>/dev/null)"})
+    images_reclaim="$(docker system df --format '{{.Type}} {{.Reclaimable}}' 2>/dev/null \
+      | sed -n 's/^Images //p')"
+    [[ "$images_reclaim" == 0B* ]] && images_reclaim=""
+  fi
+
+  if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} \
+        && ! ${#orphan_worktrees} && ! ${#old_containers} && ! ${#old_pods} )) && [[ -z "$images_reclaim" ]]; then
+    print -r -- "orp-cleanup: nothing to clean up."
     return 0
   fi
 
@@ -114,6 +167,15 @@ orp-cleanup() {
   (( ${#orphan_res_slots} )) && sorted_res_slots=(${(f)"$(print -l -- ${(k)orphan_res_slots} | sort -n)"})
   (( ${#sorted_res_slots} )) && print -r -- "  vols/nets only:  slots ${(j: :)sorted_res_slots}"
   (( ${#sorted_slots} ))     && print -r -- "  slots:           ${(j: :)sorted_slots}"
+  if (( ${#orphan_worktrees} )); then
+    print -r -- "  herdr worktrees: ${#orphan_worktrees} not open in herdr"
+    local -a wt_names=("${(@)orphan_worktrees#$herdr_root/}")
+    print -rl -- "${(@)wt_names/#/    }"
+    (( ${#dirty_worktrees} )) && print -r -- "    with uncommitted changes (lost on removal): ${(j: :)dirty_worktrees}"
+  fi
+  (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d kept)"
+  (( ${#old_pods} ))       && print -r -- "  podman:          ${#old_pods} exited pods"
+  [[ -n "$images_reclaim" ]] && print -r -- "  podman:          unused images, ~$images_reclaim reclaimable"
 
   if (( dry_run )); then
     print -r -- "Dry run; nothing removed."
@@ -163,6 +225,36 @@ orp-cleanup() {
     print -r -- "removing state dir $d"
     rm -rf -- "$d" || rc=1
   done
+
+  # Let git drop its worktree record; plain rm for dirs git no longer knows.
+  local -A wt_repos
+  for wt in "${orphan_worktrees[@]}"; do
+    print -r -- "removing worktree ${wt#$herdr_root/}"
+    common="$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    if [[ -n "$common" ]]; then
+      wt_repos[$common]=1
+      git --git-dir="$common" worktree remove --force --force "$wt" 2>/dev/null && continue
+    fi
+    rm -rf -- "$wt" || rc=1
+  done
+  for common in ${(k)wt_repos}; do
+    git --git-dir="$common" worktree prune || rc=1
+  done
+  rmdir -- "$herdr_root"/*(N/^F) 2>/dev/null
+
+  # Runs after the slot teardowns above so their images become unused too.
+  if (( ${#old_containers} )); then
+    print -r -- "removing ${#old_containers} stopped containers"
+    docker rm -f "${old_containers[@]}" >/dev/null || rc=1
+  fi
+  if (( ${#old_pods} )); then
+    print -r -- "removing ${#old_pods} exited pods"
+    docker pod rm -f "${old_pods[@]}" >/dev/null || rc=1
+  fi
+  if (( $+commands[docker] )); then
+    print -r -- "pruning unused images"
+    docker image prune -a -f >/dev/null || rc=1
+  fi
 
   [[ -n "$stub" ]] && rm -f "$stub"
   return $rc
