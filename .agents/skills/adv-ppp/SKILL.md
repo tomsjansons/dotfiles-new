@@ -55,6 +55,14 @@ All sessions sharing a worktree are one task. Drill once per worktree, not once 
 
 The digest gives issue *numbers*; you need titles and, above all, whether the thing actually shipped. Resolve them where a tracker exists — `gh issue view <n> --json title,state` against the project repo, or the Linear MCP for `ADV-###`. The AdvanGrid repo is `AdvanGrid/advangrid` at `~/dev/advangrid`; `gh pr list` and `gh pr view` fill in what merged.
 
+For AdvanGrid, also walk each issue up its parent chain to its `[Project]` issue. The PPP heading comes from there (see **AdvanGrid by tracker project** below):
+
+```
+gh api graphql -f query='{repository(owner:"AdvanGrid",name:"advangrid"){issue(number:<n>){parent{number title}}}}' -q '.data.repository.issue.parent'
+```
+
+Repeat with the parent's number until there is none. Parents are a strong hint, not the answer: tickets are not always filed under the right project, and an issue with no parent is classified by what it fixes.
+
 A number with no fetched title stays a number. The numbers are for the timesheet and for your own confidence about what shipped — they never reach the PPP.
 
 ### 5. Write the PPP
@@ -119,7 +127,7 @@ The `project/detail` label the script prints maps to the PPP heading. Order in t
 
 | script label | PPP heading | notes |
 | --- | --- | --- |
-| `advangrid` | Enerģijas Auditi | the worktree slug carries the issue ref; covers advagent, OCR, prod bugs, infra |
+| `advangrid` | by tracker project | the worktree slug carries the issue ref; the heading comes from the issue's `[Project]` parent, see below |
 | `hermes` | Hermes | |
 | `devinator` | Devinator | |
 | `failiem-agent` | Failiem.lv agents | |
@@ -129,6 +137,19 @@ The `project/detail` label the script prints maps to the PPP heading. Order in t
 | `bash-ok`, `show-me` | — | only if something shippable came out of it |
 | `home` | — | this report itself, skill authoring, research; usually omitted |
 | `other` | — | inspect the `cwd` and decide |
+
+### AdvanGrid by tracker project
+
+These headings take the `advangrid` row's place in the PPP order, in this order.
+
+| `[Project]` parent | PPP heading | what belongs here |
+| --- | --- | --- |
+| #552 Energy Audits | Enerģijas Auditi | audit features, plus audit-specific agent session work wherever it is filed: the merge, reconcile and analysis sessions, a client's audit files |
+| #554 AI Agent Improvements | split: AI infrastruktūra / Enerģijas Auditi | general AI infrastructure goes to AI infrastruktūra: what every agent session gets regardless of task (workspaces, snapshots, sandbox capacity, model limits). Fixes to audit sessions go to Enerģijas Auditi |
+| #548 AdvanGrid 2.0 | AdvanGrid/EMS/AdvanGrid2.0 | data lake, db2/db3 retirement, moving legacy features onto the new servers, the new login system |
+| #551 Internal Improvements | Iekšējie uzlabojumi | security patches, legacy domain and DNS cleanup, preview environments, CI, dev workflow |
+
+An issue with no parent, or one that is clearly filed under the wrong project, goes where its content points. When a fix was triggered in an audit session but also ships something general, put it where the reader felt the breakage and name the call in the report's check list.
 
 Two audiences, two registers. The PPP goes to people who do not read code; the timesheet goes to whoever tracks the hours. Numbers, jargon and the tracker's own task names belong in the timesheet and nowhere else.
 
