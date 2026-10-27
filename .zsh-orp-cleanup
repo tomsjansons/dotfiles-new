@@ -176,11 +176,27 @@ orp-cleanup() {
 
   # 5. old podman state: stopped containers (except k3d clusters, which
   # 'k3d cluster start' needs), exited pods, and every image no container uses.
-  local -a old_containers old_pods
-  local images_reclaim=""
+  # Compose links containers to their depends_on targets, and podman refuses to
+  # remove a dependency while a dependent exists. Stopped containers a running
+  # one (transitively) depends on, like a live stack's init/migrate jobs, are
+  # kept; the rest are removed in dependency order below.
+  local -a old_containers old_pods frontier next pending failed
+  local -A required
+  local id images_reclaim=""
   if (( $+commands[docker] )); then
-    old_containers=(${(f)"$(docker ps -a --filter status=exited --filter status=created \
-      --format '{{.ID}} {{.Label "app"}}' 2>/dev/null | awk '$2 != "k3d" { print $1 }')"})
+    frontier=(${(f)"$(docker ps -q --no-trunc 2>/dev/null)"})
+    while (( ${#frontier} )); do
+      next=(${=${(f)"$(docker inspect --format '{{range .Dependencies}}{{.}} {{end}}' \
+        "${frontier[@]}" 2>/dev/null)"}})
+      frontier=()
+      for id in "${next[@]}"; do
+        (( ${+required[$id]} )) || { required[$id]=1; frontier+=("$id") }
+      done
+    done
+    for id in ${(f)"$(docker ps -a --no-trunc --filter status=exited --filter status=created \
+        --format '{{.ID}} {{.Label "app"}}' 2>/dev/null | awk '$2 != "k3d" { print $1 }')"}; do
+      (( ${+required[$id]} )) || old_containers+=("$id")
+    done
     old_pods=(${(f)"$(docker pod ls -q --filter status=exited 2>/dev/null)"})
     images_reclaim="$(docker system df --format '{{.Type}} {{.Reclaimable}}' 2>/dev/null \
       | sed -n 's/^Images //p')"
@@ -213,7 +229,7 @@ orp-cleanup() {
     print -rl -- "${(@)cwt_names/#/    }"
   fi
   (( ${#dirty_worktrees} )) && print -r -- "  worktrees with uncommitted changes (lost on removal): ${(j: :)dirty_worktrees}"
-  (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d kept)"
+  (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d and live-stack deps kept)"
   (( ${#old_pods} ))       && print -r -- "  podman:          ${#old_pods} exited pods"
   [[ -n "$images_reclaim" ]] && print -r -- "  podman:          unused images, ~$images_reclaim reclaimable"
 
@@ -285,7 +301,20 @@ orp-cleanup() {
   # Runs after the slot teardowns above so their images become unused too.
   if (( ${#old_containers} )); then
     print -r -- "removing ${#old_containers} stopped containers"
-    docker rm -f "${old_containers[@]}" >/dev/null || rc=1
+    # Retry in passes: each pass frees the dependencies of what it removed.
+    pending=("${old_containers[@]}")
+    while (( ${#pending} )); do
+      failed=()
+      for id in "${pending[@]}"; do
+        docker rm "$id" >/dev/null 2>&1 || failed+=("$id")
+      done
+      (( ${#failed} < ${#pending} )) || break
+      pending=("${failed[@]}")
+    done
+    if (( ${#failed} )); then
+      print -u2 -- "orp-cleanup: could not remove ${#failed} stopped containers (see podman ps -a)"
+      rc=1
+    fi
   fi
   if (( ${#old_pods} )); then
     print -r -- "removing ${#old_pods} exited pods"
