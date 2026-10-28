@@ -38,7 +38,7 @@ orp-cleanup() {
   local -a live_worktrees orphan_sessions orphan_projects orphan_state vols nets
   local -a sorted_slots sorted_res_slots
   local -A live_slots orphan_slots orphan_res_slots
-  local session project slot cwd attached d orphan stub rc=0
+  local session project slot cwd attached d orphan rc=0
 
   # Live herdr workspaces (preferred liveness signal).
   if (( $+commands[herdr] && $+commands[jq] )); then
@@ -299,25 +299,24 @@ orp-cleanup() {
     print
   fi
 
-  stub=""
-  if (( ${#orphan_projects} )); then
-    stub="$(mktemp /tmp/orp-cleanup-compose.XXXXXX.yaml)"
-    print -r -- 'services: {}' > "$stub"
-  fi
-
   for session in "${orphan_sessions[@]}"; do
     print -r -- "killing tmux session $session"
     tmux kill-session -t "$session" || rc=1
   done
 
-  # 'down' locates containers/networks via the compose project label; the stub
-  # file only satisfies the CLI's requirement for a config file.
+  # Removed by label rather than 'compose down': without the project's compose
+  # file, podman-compose removes containers in arbitrary order and podman
+  # refuses each one that a depends_on link still points at. --depend takes
+  # the dependents along; the pod podman-compose created goes last.
+  local -a proj_ctrs
   for project in "${orphan_projects[@]}"; do
     print -r -- "tearing down docker project $project"
-    docker compose -p "$project" -f "$stub" down --remove-orphans --timeout 5 || rc=1
+    proj_ctrs=(${(f)"$(docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null)"})
+    (( ${#proj_ctrs} )) && { docker rm -f --depend -t 5 "${proj_ctrs[@]}" >/dev/null || rc=1 }
+    docker pod exists "pod_$project" 2>/dev/null && { docker pod rm -f "pod_$project" >/dev/null || rc=1 }
   done
 
-  # Named volumes/networks aren't declared in the stub, so remove them by label.
+  # Named volumes/networks carry the same project label.
   if (( $+commands[docker] )); then
     for slot in "${sorted_slots[@]}"; do
       vols=(${(f)"$(docker volume ls -q --filter "label=com.docker.compose.project=advangrid-$slot" 2>/dev/null)"})
@@ -395,6 +394,5 @@ orp-cleanup() {
     docker image prune -a -f >/dev/null || rc=1
   fi
 
-  [[ -n "$stub" ]] && rm -f "$stub"
   return $rc
 }
