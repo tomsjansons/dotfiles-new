@@ -18,6 +18,9 @@
 # whose sessions have been idle for over a week, stopped podman containers/pods (k3d clusters kept),
 # and every podman image no remaining container uses.
 #
+# Also removes leaked OpenSandbox sandboxes and egress sidecars, and restarts
+# live opensandbox servers that have piled up unreaped zombie children.
+#
 # Usage: orp-cleanup [-n|--dry-run] [-y|--yes]
 orp-cleanup() {
   local dry_run=0 assume_yes=0
@@ -203,8 +206,58 @@ orp-cleanup() {
     [[ "$images_reclaim" == 0B* ]] && images_reclaim=""
   fi
 
+  # 6. OpenSandbox sandboxes (+ their egress sidecars) left running by the dev
+  # stacks' opensandbox servers. Every slot's server talks to the same podman
+  # socket and sandboxes carry no slot label, so ownership can't be traced; a
+  # sandbox is orphaned when it has expired, when no live slot runs an
+  # opensandbox server, or when it is older than $ORP_SANDBOX_MAX_AGE_HOURS
+  # (default 12). Each running container pins a kernel session keyring, and the
+  # per-user keyring quota (200) is what breaks keyctl/sec-login when they leak.
+  local -a orphan_sandboxes orphan_egress live_sb_ids
+  local now_iso sb_id expires created sb_cutoff server_live=0
+  if (( $+commands[docker] )); then
+    for project in ${(f)"$(docker ps --filter label=com.docker.compose.service=opensandbox \
+        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null)"}; do
+      [[ "$project" == advangrid-<-> ]] || continue
+      (( ${live_slots[${project#advangrid-}]:-0} )) && { server_live=1; break }
+    done
+    now_iso="$(date -u +%Y-%m-%dT%H:%M:%S)"
+    sb_cutoff=$(( EPOCHSECONDS - ${ORP_SANDBOX_MAX_AGE_HOURS:-12} * 3600 ))
+    for id sb_id expires created in ${=${(f)"$(docker ps -q --no-trunc --filter label=opensandbox.io/id 2>/dev/null \
+        | xargs -r docker inspect --format '{{.Id}} {{index .Config.Labels "opensandbox.io/id"}} {{index .Config.Labels "opensandbox.io/expires-at"}} {{.Created.Unix}}' 2>/dev/null)"}}; do
+      if (( ! server_live || created < sb_cutoff )) || [[ "$expires" < "$now_iso" ]]; then
+        orphan_sandboxes+=("$id")
+      else
+        live_sb_ids+=("$sb_id")
+      fi
+    done
+    # Sidecars whose sandbox is being removed or already gone.
+    for id sb_id in ${=${(f)"$(docker ps -a --no-trunc --filter label=opensandbox.io/egress-sidecar-for \
+        --format '{{.ID}} {{.Label "opensandbox.io/egress-sidecar-for"}}' 2>/dev/null)"}}; do
+      (( ${live_sb_ids[(Ie)$sb_id]} )) || orphan_egress+=("$id")
+    done
+  fi
+
+  # 7. Zombie children piling up under live opensandbox servers. The server runs
+  # as PID 1 in its container without an init, so the subprocesses it spawns
+  # are never reaped. Restarting the container clears them (orphaned slots are
+  # torn down above anyway). Threshold: $ORP_ZOMBIE_MIN (default 20).
+  local -a zombie_servers zombie_counts
+  local pid nz
+  if (( $+commands[docker] )); then
+    for id project pid in ${=${(f)"$(docker ps -q --filter label=com.docker.compose.service=opensandbox 2>/dev/null \
+        | xargs -r docker inspect --format '{{.Name}} {{index .Config.Labels "com.docker.compose.project"}} {{.State.Pid}}' 2>/dev/null)"}}; do
+      [[ "$project" == advangrid-<-> ]] && (( ${live_slots[${project#advangrid-}]:-0} )) || continue
+      nz="$(ps --ppid "$pid" -o stat= 2>/dev/null | grep -c '^Z')"
+      (( nz >= ${ORP_ZOMBIE_MIN:-20} )) || continue
+      zombie_servers+=("$id")
+      zombie_counts+=("$id ($nz)")
+    done
+  fi
+
   if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} \
-        && ! ${#orphan_worktrees} && ! ${#claude_worktrees} && ! ${#old_containers} && ! ${#old_pods} )) && [[ -z "$images_reclaim" ]]; then
+        && ! ${#orphan_worktrees} && ! ${#claude_worktrees} && ! ${#old_containers} && ! ${#old_pods} \
+        && ! ${#orphan_sandboxes} && ! ${#orphan_egress} && ! ${#zombie_servers} )) && [[ -z "$images_reclaim" ]]; then
     print -r -- "orp-cleanup: nothing to clean up."
     return 0
   fi
@@ -232,6 +285,9 @@ orp-cleanup() {
   (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d and live-stack deps kept)"
   (( ${#old_pods} ))       && print -r -- "  podman:          ${#old_pods} exited pods"
   [[ -n "$images_reclaim" ]] && print -r -- "  podman:          unused images, ~$images_reclaim reclaimable"
+  (( ${#orphan_sandboxes} || ${#orphan_egress} )) \
+    && print -r -- "  sandboxes:       ${#orphan_sandboxes} opensandbox sandboxes + ${#orphan_egress} egress sidecars (expired, >${ORP_SANDBOX_MAX_AGE_HOURS:-12}h old, or no live server)"
+  (( ${#zombie_servers} )) && print -r -- "  zombies:         restart ${(j:, :)zombie_counts}"
 
   if (( dry_run )); then
     print -r -- "Dry run; nothing removed."
@@ -297,6 +353,20 @@ orp-cleanup() {
     git --git-dir="$common" worktree prune || rc=1
   done
   rmdir -- "$herdr_root"/*(N/^F) 2>/dev/null
+
+  # Sandboxes share their sidecar's network namespace, so they go first.
+  if (( ${#orphan_sandboxes} )); then
+    print -r -- "removing ${#orphan_sandboxes} opensandbox sandboxes"
+    docker rm -f -t 2 "${orphan_sandboxes[@]}" >/dev/null || rc=1
+  fi
+  if (( ${#orphan_egress} )); then
+    print -r -- "removing ${#orphan_egress} egress sidecars"
+    docker rm -f -t 2 "${orphan_egress[@]}" >/dev/null || rc=1
+  fi
+  for id in "${zombie_servers[@]}"; do
+    print -r -- "restarting $id to reap its zombies"
+    docker restart -t 5 "$id" >/dev/null || rc=1
+  done
 
   # Runs after the slot teardowns above so their images become unused too.
   if (( ${#old_containers} )); then
