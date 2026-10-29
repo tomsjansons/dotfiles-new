@@ -1,19 +1,14 @@
 {
-  "lastChangelogVersion": "0.85.1",
+  "lastChangelogVersion": "1.4.0",
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "defaultProvider": "zai",
   "defaultModel": "glm-5.3",
   "packages": [
     "npm:pi-web-access",
-    "git:github.com/tomsjansons/pi-fzf@6dc3e1375e703b32a2427c4473b08604908ba20e",
     "npm:@howaboua/pi-vent",
-    "npm:pi-nvim",
     "npm:pi-commandcode-provider",
-    "npm:pi-continual-harness",
-    "npm:@tintinweb/pi-subagents",
-    "npm:pi-loop-police",
-    "npm:pi-mcp-adapter"
+    "npm:@tintinweb/pi-subagents"
   ],
   "hideThinkingBlock": false,
   "transport": "sse",
@@ -29,5 +24,8 @@
       "maxRetries": 0
     }
   },
-  "tuiMode": "fullscreen"
+  "tuiMode": "fullscreen",
+  "extensions": [
+    "-builtin:mcp"
+  ]
 }
