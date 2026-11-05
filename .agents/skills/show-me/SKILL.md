@@ -5,6 +5,10 @@ description: Help the user understand the current topic visually with concise di
 
 Help the user understand the current topic of conversation visually. Skip the preamble and keep prose brief. Pick the smallest view that makes the key point clear.
 
+Every HTML artifact is a result: it goes in `~/dev/show-me/`, never in the repo, a temp directory, or the current working directory. That directory is served over HTTP, so you hand the user an address rather than opening the file yourself. The show-me directory is the collection of visual results, so name each file so it stands alone.
+
+Every HTML artifact is dark themed: dark background, light text, `color-scheme: dark`, and code and diagram styling that reads on dark.
+
 - Show logic or an algorithm as pseudocode:
 
 ```text
@@ -114,10 +118,13 @@ function expandSkill(command: string): string {
 }
 ```
 
-- For a visual UI, layout, state comparison, or concept too dense for Mermaid, write one focused HTML file — a diagram, an infographic, or a short slide deck, whichever fits the point. Match the product's colors, type, spacing, and components; use real labels and data; support desktop and mobile. Then open it for the user:
+- For a visual UI, layout, state comparison, or concept too dense for Mermaid, write one focused HTML file — a diagram, an infographic, or a short slide deck, whichever fits the point. Match the product's colors, type, spacing, and components; use real labels and data; support desktop and mobile.
+
+Write it to `~/dev/show-me/{description}.html` (create the directory if missing), with a lowercase, hyphenated, filename-safe `{description}` tied to the topic — `{task-id}-review.html`, `auth-flow-diagram.html`. Do not open the file; give the user the address it is served at:
 
 ```
-Bash(open path/to/show-me-{description}.html)
+write ~/dev/show-me/{description}.html
+give the user http://devinator.i.advangrid.com:8027/{description}.html
 ```
 
 - Place each visual next to the short text it supports. Keep only the calls, files, props, states, and boundaries needed to answer the user's current question.

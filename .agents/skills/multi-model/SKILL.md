@@ -1,18 +1,19 @@
 ---
 name: multi-model
-description: Run one research brief through two independent subagents on different models (DeepSeek and GLM), wait for both, then synthesize — revalidate claims, contrast disagreements, keep the correct parts, discard the wrong ones. Use when the user says "multi-model", "ask both models", or wants a second opinion cross-checked across models. Mutations (files, issues, commits) are done by the main session, never the subagents.
+description: Run one research brief through three independent subagents on different models (DeepSeek, GLM, MiMo), wait for all three, then synthesize — revalidate claims, contrast disagreements, keep the correct parts, discard the wrong ones. Use when the user says "multi-model", "ask the models", or wants a second opinion cross-checked across models. Mutations (files, issues, commits) are done by the main session, never the subagents.
 ---
 
-Two independent researchers, one brief, two models. Neither sees the other's answer; you (the main session) own the synthesis and every mutation.
+Three independent researchers, one brief, three models. None sees the others' answers; you (the main session) own the synthesis and every mutation.
 
-- Researcher A — `commandcode/deepseek/deepseek-v4.1-flash`
-- Researcher B — `zai/glm-5.3-flash`
+- Researcher A (`commandcode/deepseek/deepseek-v4.1-flash`)
+- Researcher B (`commandcode/z-ai/glm-5.3-flash`)
+- Researcher C (`commandcode/xiaomi/mimo-v2.6-flash`)
 
 ## Process
 
 ### 1. Pin the question
 
-What does the user actually want to know or decide? If the request bundles a mutation ("fix the failing test", "open an issue for X"), split it: the *question* goes to the subagents, the *mutation* stays here for step 5. If the question itself is ambiguous, ask before spawning two agents at it.
+What does the user actually want to know or decide? If the request bundles a mutation ("fix the failing test", "open an issue for X"), split it: the *question* goes to the subagents, the *mutation* stays here for step 5. If the question itself is ambiguous, ask before spawning three agents at it.
 
 Done when you can state the question in one sentence.
 
@@ -31,14 +32,15 @@ Rephrase the user's prompt so it can only produce information:
 
 Done when the brief cannot be executed mutatively.
 
-### 3. Spawn both researchers in parallel
+### 3. Spawn all three researchers in parallel
 
-One message, two `Agent` tool calls, both `subagent_type: general-purpose`, both `run_in_background: false` — your next action needs both results. The prompts are identical; the `model` parameter is the only difference:
+One message, three `Agent` tool calls, all `subagent_type: general-purpose`, all `run_in_background: false` — your next action needs all three results. The prompts are identical; the `model` parameter is the only difference:
 
 - Researcher A: `model: "commandcode/deepseek/deepseek-v4.1-flash"`
-- Researcher B: `model: "zai/glm-5.3-flash"`
+- Researcher B: `model: "commandcode/z-ai/glm-5.3-flash"`
+- Researcher C: `model: "commandcode/xiaomi/mimo-v2.6-flash"`
 
-Wait for both. If one errors, retry it once; if it still fails, synthesize from the survivor and say plainly that only one model answered.
+Wait for all three. If one errors, retry it once; if it still fails, synthesize from the survivors and say plainly which models did not answer.
 
 ### 4. Synthesize
 
@@ -55,6 +57,6 @@ Done when the user has the synthesized answer plus the discard list.
 
 If the original request implied changes — edits, issues, PRs, commits — do them yourself now, from the synthesized result, in the main session. Never hand a mutation to a subagent "for convenience". If no mutation is needed, this step is stating that.
 
-## Why two models
+## Why three models
 
-Same brief, different training → different blind spots. Agreement is weak evidence (both can share a wrong assumption); disagreement is a pointer to where the truth is expensive. The synthesis step is the product — two researchers without it just double the noise.
+Same brief, different training → different blind spots. Agreement is weak evidence (all three can share a wrong assumption); a two-against-one split is a majority, not a verdict — the revalidate step still decides. Disagreement is a pointer to where the truth is expensive. The synthesis step is the product — three researchers without it just triple the noise.

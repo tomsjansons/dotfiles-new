@@ -42,6 +42,7 @@ import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateTail } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { colorizeCodeSegment } from "./highlight";
+import { BuildCache } from "./build-cache";
 import {
 	animateSpinner,
 	colorizeLines,
@@ -81,8 +82,16 @@ function advanceSpinner(): string {
  * same as bash.
  *
  * Returns an array of { op, rest } where the first entry has op === "".
+ * The returned array is shared between calls (built once per command via
+ * build-cache.ts) — treat it as immutable.
  */
+const shellSplitCache = new BuildCache<{ op: string; rest: string }[]>(256);
+
 export function splitShellCommand(command: string): { op: string; rest: string }[] {
+	return shellSplitCache.get(command, 0, () => buildShellSplit(command));
+}
+
+function buildShellSplit(command: string): { op: string; rest: string }[] {
 	const parts: { op: string; rest: string }[] = [];
 	let current = "";
 	let i = 0;
