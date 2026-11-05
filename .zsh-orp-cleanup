@@ -13,6 +13,10 @@
 # compose project or state dir is orphaned when its slot has no surviving
 # tmux session.
 #
+# Also removes T3 Code worktrees and scratch folders no live T3 thread uses
+# (T3 itself removes the worktrees its threads own), keeping stacks bound to
+# T3 worktrees alive while the worktree exists.
+#
 # Also removes herdr worktrees (~/.herdr/worktrees) that no open herdr
 # workspace or pane uses, Claude Code worktrees (<repo>/.claude/worktrees)
 # whose sessions have been idle for over a week, stopped podman containers/pods (k3d clusters kept),
@@ -38,7 +42,8 @@ orp-cleanup() {
   local -a live_worktrees orphan_sessions orphan_projects orphan_state vols nets
   local -a sorted_slots sorted_res_slots
   local -A live_slots orphan_slots orphan_res_slots
-  local session project slot cwd attached d orphan rc=0
+  local session project slot cwd attached d orphan wt p live rc=0
+  local -a dirty_worktrees
 
   # Live herdr workspaces (preferred liveness signal).
   if (( $+commands[herdr] && $+commands[jq] )); then
@@ -46,12 +51,90 @@ orp-cleanup() {
       | jq -r '.result.workspaces[] | .worktree.checkout_path // empty' 2>/dev/null)"})
   fi
 
+  zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+  local -a proc_cwds
+  proc_cwds=(${(f)"$(for p in /proc/<->/cwd(N); do print -r -- "${p:A}"; done 2>/dev/null)"})
+
+  # 0. T3 Code worktrees and scratch folders. T3 removes the worktrees its threads
+  # own (storageCleanup settings); this only takes what no live thread
+  # references: worktrees whose threads are all deleted or that no thread ever
+  # recorded, and scratch folders likewise or whose threads all settled over
+  # $ORP_T3_SCRATCH_DAYS (default 14) days ago. Liveness comes from T3's own
+  # thread table, read-only; skipped entirely if it can't be read, so an
+  # unreadable DB never reads as "no threads". Anything modified within the
+  # last hour is kept (T3 creates a worktree before its thread row), as is
+  # anything a running process is inside.
+  local t3_home="${T3CODE_HOME:-$HOME/.t3}" t3_rows t3_ok=0 t3_path t3_alive t3_unsettled t3_settled
+  local t3_root="${T3CODE_HOME:-$HOME/.t3}/worktrees" t3_scratch="${T3CODE_HOME:-$HOME/.t3}/scratch"
+  local -A t3_alive_paths t3_settled_at
+  local -a t3_worktrees t3_scratch_dirs
+  local t3_grace=$(( EPOCHSECONDS - 3600 ))
+  local t3_scratch_cutoff=$(( EPOCHSECONDS - ${ORP_T3_SCRATCH_DAYS:-14} * 86400 ))
+  if [[ -r "$t3_home/userdata/statev2.sqlite" ]] && (( $+commands[sqlite3] )); then
+    # One row per path: any non-deleted thread / any unsettled one / newest settle.
+    if t3_rows="$(sqlite3 -readonly -separator $'\t' "$t3_home/userdata/statev2.sqlite" "
+        SELECT p, MAX(deleted_at IS NULL), MAX(deleted_at IS NULL AND s IS NULL),
+               IFNULL(MAX(CASE WHEN deleted_at IS NULL THEN CAST(strftime('%s', s) AS INTEGER) END), 0)
+        FROM (SELECT json_extract(payload_json, '\$.worktreePath') AS p, deleted_at,
+                     json_extract(payload_json, '\$.settledAt') AS s
+              FROM orchestration_v2_projection_threads)
+        WHERE p IS NOT NULL GROUP BY p" 2>/dev/null)"; then
+      t3_ok=1
+      for t3_path t3_alive t3_unsettled t3_settled in "${(@ps:\t:)${(f)t3_rows}}"; do
+        (( t3_alive )) || continue
+        t3_alive_paths[$t3_path]=1
+        (( t3_unsettled )) || t3_settled_at[$t3_path]=$t3_settled
+      done
+    fi
+  fi
+  if (( t3_ok )); then
+    for wt in "$t3_root"/*/*(N/) "$t3_scratch"/*(N/); do
+      if [[ "$wt" == "$t3_scratch"/* ]]; then
+        # Scratch of a live thread goes only once every thread on it settled long ago.
+        if (( ${+t3_alive_paths[$wt]} )); then
+          (( ${+t3_settled_at[$wt]} && ${t3_settled_at[$wt]:-0} < t3_scratch_cutoff )) || continue
+        fi
+      else
+        (( ${+t3_alive_paths[$wt]} )) && continue
+        # Only linked git worktrees; the project dirs above them are not ours to judge.
+        [[ -f "$wt/.git" ]] || continue
+      fi
+      (( $(stat -c %Y -- "$wt" 2>/dev/null || print 0) < t3_grace )) || continue
+      live=0
+      for p in "${proc_cwds[@]}"; do
+        [[ "$p" == "$wt" || "$p" == "$wt"/* ]] && { live=1; break }
+      done
+      (( live )) && continue
+      if [[ "$wt" == "$t3_scratch"/* ]]; then
+        t3_scratch_dirs+=("$wt")
+      else
+        t3_worktrees+=("$wt")
+        [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null | head -n 1)" ]] && dirty_worktrees+=("${wt/#$HOME/~}")
+      fi
+    done
+  elif [[ -d "$t3_root" || -d "$t3_scratch" ]]; then
+    print -u2 -- "orp-cleanup: can't read T3 Code's thread state; skipping T3 worktree/scratch cleanup."
+  fi
+
   # A slot whose recorded worktree is open in herdr is live even when its tmux
-  # session is gone (e.g. after a tmux server restart).
-  if (( ${#live_worktrees} )) && [[ -d "$state_root" ]]; then
+  # session is gone (e.g. after a tmux server restart). A slot bound to a T3
+  # worktree is live while that worktree exists and isn't being removed above:
+  # T3 removing the worktree is what ends its stack (T3 also runs
+  # 'adv-dev-ctl env remove' when the thread settles, see the advangrid project
+  # scripts).
+  local -A t3_live_slots
+  if [[ -d "$state_root" ]]; then
     for d in "$state_root"/<->(N/); do
       cwd="$(sed -n 's/^WORKTREE_PATH=//p' "$d/env" 2>/dev/null | head -n 1)"
-      [[ -n "$cwd" && " ${live_worktrees[*]} " == *" $cwd "* ]] && live_slots[${d:t}]=1
+      [[ -n "$cwd" ]] || continue
+      if [[ "$cwd" == "$t3_root"/* ]]; then
+        if [[ -d "$cwd" ]] && (( ! ${t3_worktrees[(Ie)$cwd]} )); then
+          live_slots[${d:t}]=1
+          t3_live_slots[${d:t}]=1
+        fi
+      elif (( ${#live_worktrees} )) && [[ " ${live_worktrees[*]} " == *" $cwd "* ]]; then
+        live_slots[${d:t}]=1
+      fi
     done
   fi
 
@@ -60,6 +143,8 @@ orp-cleanup() {
     for session in ${(f)"$(tmux list-sessions -F '#S' 2>/dev/null)"}; do
       [[ "$session" == advangrid-<-> ]] || continue
       slot="${session#advangrid-}"
+      # Bound to a live T3 worktree: herdr and attached clients say nothing about it.
+      (( ${+t3_live_slots[$slot]} )) && continue
       orphan=0
       if (( ${#live_worktrees} )); then
         cwd="$(tmux list-panes -t "$session" -F '#{pane_current_path}' 2>/dev/null | head -n 1)"
@@ -120,8 +205,8 @@ orp-cleanup() {
   # 4. herdr worktrees (~/.herdr/worktrees/<repo>/<name>) that no open herdr
   # workspace or pane points into. Skipped entirely unless herdr answers, so a
   # dead server never reads as "nothing is open".
-  local herdr_root="$HOME/.herdr/worktrees" herdr_json wt p live common
-  local -a herdr_paths orphan_worktrees dirty_worktrees
+  local herdr_root="$HOME/.herdr/worktrees" herdr_json common
+  local -a herdr_paths orphan_worktrees
   if [[ -d "$herdr_root" ]] && (( $+commands[herdr] && $+commands[jq] )); then
     herdr_json="$( { herdr workspace list; herdr pane list; } 2>/dev/null)"
     if [[ "$herdr_json" == *workspace_list* && "$herdr_json" == *panes* ]]; then
@@ -150,10 +235,8 @@ orp-cleanup() {
   # transcript, the worktree's git index mtime stands in. Kept regardless when
   # a herdr pane or a running process is inside it.
   local claude_projects="$HOME/.claude/projects" newest idle_cutoff
-  local -a claude_worktrees proc_cwds activity
-  zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+  local -a claude_worktrees activity
   idle_cutoff=$(( EPOCHSECONDS - 7 * 86400 ))
-  proc_cwds=(${(f)"$(for p in /proc/<->/cwd(N); do print -r -- "${p:A}"; done 2>/dev/null)"})
   for wt in "$HOME"/dev/*/.claude/worktrees/*(N/) "$herdr_root"/*/*/.claude/worktrees/*(N/); do
     live=0
     for p in "${herdr_paths[@]}" "${proc_cwds[@]}"; do
@@ -256,7 +339,7 @@ orp-cleanup() {
   fi
 
   if (( ! ${#orphan_sessions} && ! ${#orphan_projects} && ! ${#orphan_state} && ! ${#orphan_res_slots} \
-        && ! ${#orphan_worktrees} && ! ${#claude_worktrees} && ! ${#old_containers} && ! ${#old_pods} \
+        && ! ${#orphan_worktrees} && ! ${#claude_worktrees} && ! ${#t3_worktrees} && ! ${#t3_scratch_dirs} && ! ${#old_containers} && ! ${#old_pods} \
         && ! ${#orphan_sandboxes} && ! ${#orphan_egress} && ! ${#zombie_servers} )) && [[ -z "$images_reclaim" ]]; then
     print -r -- "orp-cleanup: nothing to clean up."
     return 0
@@ -280,6 +363,14 @@ orp-cleanup() {
     print -r -- "  claude worktrees: ${#claude_worktrees} idle for over a week"
     local -a cwt_names=("${(@)claude_worktrees/#$HOME/~}")
     print -rl -- "${(@)cwt_names/#/    }"
+  fi
+  if (( ${#t3_worktrees} )); then
+    print -r -- "  t3 worktrees:    ${#t3_worktrees} no live T3 thread uses"
+    print -rl -- "${(@)${(@)t3_worktrees#$t3_root/}/#/    }"
+  fi
+  if (( ${#t3_scratch_dirs} )); then
+    print -r -- "  t3 scratch:      ${#t3_scratch_dirs} with no live thread, or settled over ${ORP_T3_SCRATCH_DAYS:-14} days ago"
+    print -rl -- "${(@)${(@)t3_scratch_dirs#$t3_scratch/}/#/    }"
   fi
   (( ${#dirty_worktrees} )) && print -r -- "  worktrees with uncommitted changes (lost on removal): ${(j: :)dirty_worktrees}"
   (( ${#old_containers} )) && print -r -- "  podman:          ${#old_containers} stopped containers (k3d and live-stack deps kept)"
@@ -339,7 +430,7 @@ orp-cleanup() {
 
   # Let git drop its worktree record; plain rm for dirs git no longer knows.
   local -A wt_repos
-  for wt in "${orphan_worktrees[@]}" "${claude_worktrees[@]}"; do
+  for wt in "${orphan_worktrees[@]}" "${claude_worktrees[@]}" "${t3_worktrees[@]}"; do
     print -r -- "removing worktree ${wt/#$HOME/~}"
     common="$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
     if [[ -n "$common" ]]; then
@@ -352,6 +443,10 @@ orp-cleanup() {
     git --git-dir="$common" worktree prune || rc=1
   done
   rmdir -- "$herdr_root"/*(N/^F) 2>/dev/null
+  for d in "${t3_scratch_dirs[@]}"; do
+    print -r -- "removing scratch folder ${d/#$HOME/~}"
+    rm -rf -- "$d" || rc=1
+  done
 
   # Sandboxes share their sidecar's network namespace, so they go first.
   if (( ${#orphan_sandboxes} )); then
