@@ -97,7 +97,20 @@ Mechanisms are not outcomes. "Sandbox", "event loop", "heap", "session", "canoni
 
 Drop tooling and personal-work items unless they produced something the company would recognise (a new capability, a process change). A project with nothing shippable behind it gets no heading, not an empty one; a week with little in it says so in one line.
 
-Before moving on, read the finished PPP as the manager would. Any line that would earn a follow-up question is not finished.
+**Short and intentful.** The PPP is skimmed, not read. Each line is one short clause that states the result, with no explanation of how it was reached:
+
+- The project line is a status, ideally under 15 words.
+- Nested lines are optional, at most four per project, and each one names a single outcome.
+- Specific bug names, settings, counts and dates of decisions belong in the timesheet. Keep a number only when it carries the point ("~20x mazāki dati").
+- A project whose week fits in one sentence gets no nested lines.
+
+| too wordy | intentful |
+| --- | --- |
+| Izlabotas visas klienta (Revolt) atsauksmēs uz Starzinger auditu minētās aprēķinu kļūdas: viena un tā pati enerģija vairs netiek skaitīta vairākas reizes, atgūtais siltums netiek pieskaitīts patēriņam, … | Izlabotas visas aprēķinu kļūdas no klienta (Revolt) atsauksmēm |
+| Vecā EMS platforma: atskaišu eksports vairs nebrūk no atmiņas trūkuma, platforma apkalpo vairāk vienlaicīgu pieprasījumu (32 apstrādātāji 12 vietā), un tagad redzams, kurš lietotājs … | Vecā EMS: atskaišu eksports vairs nebrūk, platforma iztur lielāku slodzi |
+| four bullets on purges, alert noise, CI disk and a website deploy | Iekšējie uzlabojumi - atbrīvota vieta, samazināts brīdinājumu troksnis, LBRA mājaslapa darbojas uz mūsu infrastruktūras |
+
+Before moving on, read the finished PPP as the manager would. Any line that would earn a follow-up question is not finished, and any line that tells the reader more than they would ask about is too long.
 
 ### 6. Write the timesheets
 
@@ -117,9 +130,19 @@ Built from the ACTIVITY view in this order:
 
 Weekend days carry only what the sessions show, with no Planning line.
 
+Parallel agent threads add their time together, so a busy weekday's ACTIVITY total can be well over 8h (17h is not unusual). In that case, scale the day's task lines down proportionally to 7h, round to 0.5, and fold lines under 0.25h into a related line. Report the raw per-day totals next to the sheet so the user can see what was scaled.
+
+Also write the sheet to `timesheet-<monday>.tsv` in the working directory so it can be pasted into a spreadsheet:
+
+- a header row `Date	Hours	Task`
+- tab-separated columns
+- hours as plain numbers with a **dot** decimal separator (`0.5`, not `0,5` or `0.5h`)
+
+Check that the weekday totals sum to 8 before handing it over.
+
 ### 7. Report
 
-Print both sections in the chat, in that order. Then add a short list of what to check: the days closest to light, anything that looked unresolved at the end of the week, and any project where a tracker lookup failed.
+Print both sections in the chat, in that order, and link the TSV file. Then add a short list of what to check: the days closest to light, anything that looked unresolved at the end of the week, and any project where a tracker lookup failed.
 
 ## Project map
 
