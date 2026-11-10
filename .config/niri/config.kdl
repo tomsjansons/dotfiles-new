@@ -14,7 +14,7 @@
 // spawn-at-startup "bash" "-c" "\"xwayland-satellite || libnotify --wait --urgency critical xwayland-crashed\""
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swaybg.sh"
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swayidle.sh"
-spawn-at-startup "noctalia"
+spawn-sh-at-startup "LC_ALL=en_GB.UTF-8 noctalia"
 
 debug {
   // Allows notification actions and window activation from Noctalia.
