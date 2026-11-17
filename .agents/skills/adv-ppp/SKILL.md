@@ -28,14 +28,17 @@ If they name a different range, use theirs.
 python3 ~/.agents/skills/adv-ppp/scan-sessions.py --from <mon> --to <sun>
 ```
 
-Read the whole output before writing anything. It has two views:
+Read the whole output before writing anything. It has three views:
 
 - **SESSIONS** — one line per top-level session, grouped by project: the harness (`pi` or `cc`), in-range active hours, the days touched, the issue ref from the worktree slug, a `+Nsub` count, and the best statement of what the session was about.
-- **ACTIVITY** — hours per day per worktree, derived from every event timestamp across both harnesses including sub-agents, with idle gaps over 30 minutes dropped. Time spent with pi and Claude Code open side by side counts once. This is the timesheet's skeleton.
+- **ACTIVITY** — hours per day per worktree, derived from every event timestamp across both harnesses including sub-agents, with idle gaps over 30 minutes dropped. Overlapping sessions already count once, so a high total is not double counting: it is agents running while nobody was at the keyboard (loops through the night, sub-agent fan-out). This measures agent time, not the user's time. Use it to see where the work went, never for hours.
+- **WORKTIME** — the user's own working time, built only from the prompts they sent. This is the timesheet's source. Read the rules under step 6.
 
-Pass `--claude-root ''` to scan pi alone. Add `--json /tmp/week.json` when you want to sort or filter the sessions programmatically instead of re-parsing the prose.
+T3 Code worktrees (`~/.t3/worktrees/<repo>/t3-<hash>`) are labelled `<repo>/t3-<hash>:<branch>`. The branch is read from the worktree as it is *now*, so it can be missing (worktree deleted) or point to a later task that reused the worktree. Check doubtful ones against the session's own prompt.
 
-Done when every project you are about to report on has a session line behind it, and every weekday in the range has an activity total.
+Pass `--claude-root ''` to scan pi alone. `--json /tmp/week.json` writes the digest (sessions, activity, worktime) to a file *instead of* printing the prose. A full week of Claude Code transcripts can take more than two minutes to scan, so run it in the background.
+
+Done when every project you are about to report on has a session line behind it, and every weekday in the range has a worktime total.
 
 ### 3. Fill the gaps
 
@@ -114,23 +117,34 @@ Before moving on, read the finished PPP as the manager would. Any line that woul
 
 ### 6. Write the timesheets
 
-One line per day per task, hours rounded to the nearest 0.5:
+Hours are the user's real working time, taken from the clock: when they started, when they stopped and the breaks between. Agent run time does not count. Nothing is scaled to 8h and nothing is padded.
+
+The **WORKTIME** view applies these rules. Know them, because the user will ask how a day was counted:
+
+- **Your prompts only.** Every message the user sent in a top-level session, in either harness, slash commands included. These do not count: sub-agent transcripts, harness messages (T3 Code `Update on pull request…`, task notifications, `<…>` wrappers) and T3 Code's title-generator sessions.
+- **Blocks.** Consecutive prompts up to 90 minutes apart form one block. A longer gap starts a new one, so 9:00–18:00 with a lunch break is one block, and 9:00–18:00 plus 21:00–23:00 is two.
+- **Midnight.** A block counts whole toward the day it *started*. A block that starts before 05:00 belongs to the previous day. A session running past midnight is never split.
+- **Lunch.** 0.5h comes off a block of 4h or more that runs through 12:00–13:30. When lunch already falls in a gap between blocks, nothing comes off.
+- **Per task.** The time between two prompts goes to the worktree of the earlier prompt, which is where the user's attention was. The last prompt of each block adds 0.1h. That makes the per-task split approximate, while the day total is the solid number.
+
+Turn it into the sheet:
+
+1. Map every WORKTIME label to a timesheet task, using the worktree branch and the session drill-downs. All worktrees for one issue, or for one tight group (the issues of one epic, a day of ops incidents), become one line: `#2428 proc1->k3s migration: #2470 #2471 #2472`.
+2. Round each line to the nearest 0.5. Fold lines under 0.25h into the related line, or into the day's largest line. Then adjust the largest line so the day adds up to its WORKTIME total rounded to 0.5.
+3. Add `1h - Planning` to each weekday, *on top of* the session hours. That is the existing sheet's convention for planning and talks the transcripts can't see. Weekend days get no Planning line.
+4. A weekday under 7h of sessions is not padded. Say so — `Mon: 3h in sessions (meetings? calls?)` — and let the user add what was off the machine.
 
 ```markdown
-2026-09-24 - 1h - Planning
-2026-09-24 - 4h - ADV-160 canonical-data merge: spec, PR stack, multi-model review
-2026-09-24 - 2h - #1487 heap OOM: pod log forensics, heap snapshot
+2026-11-10 - 1h - Planning
+2026-11-10 - 3.5h - #2529 advagent v3 design: Go plan, ADR 0007
+2026-11-10 - 2h - Legacy EMS ops: alerts, incidents, #2607 #2540 #2513
 ```
 
-Built from the ACTIVITY view in this order:
+Next to the sheet, show a table per day with the blocks, session hours and the total including Planning. The user reads it to check the day against memory:
 
-1. Merge a day's worktree hours into one line per issue — a worktree appearing in four sessions is one timesheet line, not four.
-2. Add `1h - Planning` to each weekday. That is the convention the existing sheet uses.
-3. Weekday totals land at 8h. Where the sessions fall short, **say so** — `2.5h not in sessions (meetings? calls?)` — and let the user add the meetings, calls and off-machine work the transcripts cannot see. Never pad the session lines to close the gap.
-
-Weekend days carry only what the sessions show, with no Planning line.
-
-Parallel agent threads add their time together, so a busy weekday's ACTIVITY total can be well over 8h (17h is not unusual). In that case, scale the day's task lines down proportionally to 7h, round to 0.5, and fold lines under 0.25h into a related line. Report the raw per-day totals next to the sheet so the user can see what was scaled.
+| Day | Blocks | Hours | With Planning |
+| --- | --- | --- | --- |
+| Tue 11-10 | 08:42–10:19, 12:03–17:41, 20:59–00:04 | 10.5h | 11.5h |
 
 Also write the sheet to `timesheet-<monday>.tsv` in the working directory so it can be pasted into a spreadsheet:
 
@@ -138,7 +152,7 @@ Also write the sheet to `timesheet-<monday>.tsv` in the working directory so it 
 - tab-separated columns
 - hours as plain numbers with a **dot** decimal separator (`0.5`, not `0,5` or `0.5h`)
 
-Check that the weekday totals sum to 8 before handing it over.
+Before handing it over, check that each day's lines add up to its rounded WORKTIME total, plus Planning on weekdays.
 
 ### 7. Report
 
@@ -150,7 +164,8 @@ The `project/detail` label the script prints maps to the PPP heading. Order in t
 
 | script label | PPP heading | notes |
 | --- | --- | --- |
-| `advangrid` | by tracker project | the worktree slug carries the issue ref; the heading comes from the issue's `[Project]` parent, see below |
+| `advangrid` | by tracker project | the worktree branch or slug carries the issue ref; the heading comes from the issue's `[Project]` parent, see below |
+| `beghu` | beghu.dev | AdvanGrid's open-source issue tracker, run as a paid service; its prod deploy lives in the advangrid repo |
 | `hermes` | Hermes | |
 | `devinator` | Devinator | |
 | `failiem-agent` | Failiem.lv agents | |
@@ -158,6 +173,7 @@ The `project/detail` label the script prints maps to the PPP heading. Order in t
 | `hermis/growth` | Mārketinga/sales aktivitātes | Claude Code in `~/hermis-agent-workspaces`; sales outreach projects |
 | `hermis/operations` | — | ops errands for the company (presentations, files); fold into the project they served |
 | `bash-ok`, `show-me` | — | only if something shippable came out of it |
+| `scratch` | — | T3 Code scratch threads (research, one-off questions); fold into the project they served or omit |
 | `home` | — | this report itself, skill authoring, research; usually omitted |
 | `other` | — | inspect the `cwd` and decide |
 

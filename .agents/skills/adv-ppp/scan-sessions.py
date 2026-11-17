@@ -13,7 +13,14 @@ Two views of the same raw material:
                Sub-agent transcripts are folded into their parent's count.
   ACTIVITY   - every event timestamp from every session (main + sub-agent),
                merged into blocks with an idle-gap threshold, split per local
-               day, apportioned across projects by event share.
+               day, apportioned across projects by event share. Measures how
+               long agents ran, not how long the user worked.
+  WORKTIME   - the user's own prompts only, merged into work blocks (gaps over
+               90 min split). A block belongs whole to the day it started, and
+               one starting before 05:00 belongs to the previous day. Lunch
+               (0.5h) comes off a block of 4h+ that runs through 12:00-13:30.
+               Each stretch between two prompts goes to the worktree of the
+               earlier prompt. This is the timesheet's source.
 
 Usage:
   scan-sessions.py --from 2026-09-21 --to 2026-09-27
@@ -44,8 +51,18 @@ SYNTHETIC_PROMPT = re.compile(
     re.I,
 )
 
-# Scratch sessions with no reporting value.
-NOISE = re.compile(r"(tmp-pi-repro|/tmp/pi-repro)")
+# Scratch sessions with no reporting value (T3 Code's title generator included).
+NOISE = re.compile(r"(tmp-pi-repro|/tmp/pi-repro|t3code-claude-title)")
+
+# Prompts the harness sends on the user's behalf (T3 Code PR watch updates).
+AUTOMATED_PROMPT = re.compile(r"^(Update on pull request|\[SYSTEM)", re.I)
+
+# WORKTIME rules.
+WORK_GAP = datetime.timedelta(minutes=90)
+DAY_START_HOUR = 5        # a block starting before this belongs to the previous day
+LONE_PROMPT_H = 0.1       # the last prompt of a block still costs a few minutes
+LUNCH_H = 0.5
+LUNCH_MIN_BLOCK_H = 4
 
 WEAK_TASK = 30
 
@@ -123,9 +140,37 @@ def claude_prompt(content):
     return "" if content.lstrip().startswith("<") else content
 
 
+_BRANCH_CACHE = {}
+
+
+def worktree_branch(path):
+    """Current branch of a T3 worktree, '' once the worktree is gone."""
+    if path not in _BRANCH_CACHE:
+        branch = ""
+        try:
+            import subprocess
+
+            branch = subprocess.run(
+                ["git", "-C", path, "branch", "--show-current"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        _BRANCH_CACHE[path] = branch
+    return _BRANCH_CACHE[path]
+
+
 def project_of(cwd):
     """(base, detail) - base groups work, detail is the worktree/topic."""
     cwd = cwd or ""
+    # T3 Code worktrees are named t3-<hash>; the branch carries the issue ref.
+    m = re.match(r"(/home/tomsj/\.t3/worktrees/([^/]+)/([^/]+))", cwd)
+    if m:
+        branch = worktree_branch(m.group(1))
+        return (m.group(2), f"{m.group(3)}:{branch}" if branch else m.group(3))
+    m = re.match(r"/home/tomsj/\.t3/scratch/([^/]+)", cwd)
+    if m:
+        return ("scratch", m.group(1))
     m = re.match(r"/home/tomsj/\.herdr/worktrees/([^/]+)/([^/]+)", cwd)
     if m:
         return (m.group(1), m.group(2))
@@ -184,6 +229,7 @@ def session_record(path, harness, cwd, parent, events, task, source):
         "source": source,
         "weak": len(task) <= WEAK_TASK,
         "subagents": 0,
+        "prompt_times": [],
     }
 
 
@@ -217,6 +263,7 @@ def load_claude_session(path):
     events = []
     prompts = []
     goals = []
+    prompt_times = []
     title = ""
     parts = os.path.normpath(path).split(os.sep)
     parent = None
@@ -239,18 +286,24 @@ def load_claude_session(path):
                 if g:
                     goals.append(g)
             else:
-                prompts.append(claude_prompt(content))
+                p = claude_prompt(content)
+                prompts.append(p)
+                if ts and p.strip() and not obj.get("isSidechain") and not AUTOMATED_PROMPT.match(p.lstrip()):
+                    prompt_times.append(ts)
 
     if not events:
         return None
     task, source = pick_task(goals, prompts, title)
-    return session_record(path, "cc", cwd, parent, events, task, source)
+    rec = session_record(path, "cc", cwd, parent, events, task, source)
+    rec["prompt_times"] = prompt_times
+    return rec
 
 
 def load_pi_session(path):
     cwd = parent = None
     events = []
     prompts = []
+    prompt_times = []
     goals = []
 
     with open(path, errors="replace") as fh:
@@ -280,12 +333,17 @@ def load_pi_session(path):
             elif kind == "message":
                 msg = obj.get("message") or {}
                 if msg.get("role") == "user":
-                    prompts.append(block_text(msg.get("content")))
+                    p = block_text(msg.get("content"))
+                    prompts.append(p)
+                    if ts and p.strip() and not AUTOMATED_PROMPT.match(p.lstrip()):
+                        prompt_times.append(ts)
 
     if not events:
         return None
     task, source = pick_task(goals, prompts)
-    return session_record(path, "pi", cwd, parent, events, task, source)
+    rec = session_record(path, "pi", cwd, parent, events, task, source)
+    rec["prompt_times"] = prompt_times
+    return rec
 
 
 def transcript_paths(root, claude_root):
@@ -312,7 +370,12 @@ def collect(root, claude_root, tz, lo, hi):
         if not s:
             continue
         s["local"] = [t.astimezone(tz) for t in s["events"] if lo <= t.astimezone(tz) < hi]
-        if not s["local"]:
+        # Work days run 05:00-05:00, so prompts are read with the same shift.
+        shift = datetime.timedelta(hours=DAY_START_HOUR)
+        s["prompts_local"] = [
+            t.astimezone(tz) for t in s["prompt_times"] if lo + shift <= t.astimezone(tz) < hi + shift
+        ]
+        if not s["local"] and not s["prompts_local"]:
             continue
         sessions.append(s)
 
@@ -366,7 +429,53 @@ def apportion(blocks):
     return per_day
 
 
+def work_day(t):
+    return (t - datetime.timedelta(hours=DAY_START_HOUR)).date()
+
+
+def worktime(sessions):
+    """Per work day: the user's blocks and hours per label, lunch taken off."""
+    points = []
+    for s in sessions:
+        if s["parent"]:
+            continue
+        base, detail = project_of(s["cwd"])
+        label = f"{base}/{detail}" if detail else base
+        points += [(t, label) for t in s["prompts_local"]]
+    points.sort()
+    days = collections.defaultdict(lambda: {"blocks": [], "labels": collections.Counter()})
+    block = None
+    for i, (t, label) in enumerate(points):
+        if block is None:
+            block = [t, t]
+            day = days[work_day(t)]
+            day["blocks"].append(block)
+        nxt = points[i + 1][0] if i + 1 < len(points) else None
+        if nxt is not None and nxt - t <= WORK_GAP:
+            block[1] = nxt
+            day["labels"][label] += (nxt - t).total_seconds() / 3600
+        else:
+            day["labels"][label] += LONE_PROMPT_H
+            block = None
+    for d in days.values():
+        d["lunch"] = 0.0
+        for a, b in d["blocks"]:
+            if (a.hour < 12 and b.date() == a.date() and (b.hour, b.minute) >= (13, 30)
+                    and (b - a).total_seconds() >= LUNCH_MIN_BLOCK_H * 3600):
+                d["lunch"] += LUNCH_H
+        if d["lunch"] and d["labels"]:
+            top_label = d["labels"].most_common(1)[0][0]
+            d["labels"][top_label] -= d["lunch"]
+        d["hours"] = sum(d["labels"].values())
+    return days
+
+
 def report_range(sessions, tz, start, end, gap_minutes, as_json):
+    work = worktime(sessions)
+    first_date = datetime.date.fromisoformat(start)
+    last_date = datetime.date.fromisoformat(end)
+    work = {d: v for d, v in work.items() if first_date <= d <= last_date}
+    sessions = [s for s in sessions if s["local"]]
     top = [s for s in sessions if not s["parent"]]
     gap = datetime.timedelta(minutes=gap_minutes)
     first_day = datetime.datetime.fromisoformat(start).replace(tzinfo=tz)
@@ -431,6 +540,18 @@ def report_range(sessions, tz, start, end, gap_minutes, as_json):
             for label, hours in items:
                 print(f"  {hours:5.2f}h  {label}")
 
+    if not as_json:
+        print(f"\n# worktime  (your prompts only; gaps > {int(WORK_GAP.total_seconds() // 60)}min split blocks;"
+              f" a block counts whole toward the day it starts, before {DAY_START_HOUR:02d}:00 = previous day)")
+        for day in sorted(work):
+            w = work[day]
+            spans = ", ".join(f"{a:%H:%M}-{b:%H:%M}" for a, b in w["blocks"])
+            lunch = f"  (-{w['lunch']:g}h lunch)" if w["lunch"] else ""
+            print(f"\n## {day:%a %Y-%m-%d}  {w['hours']:.1f}h{lunch}   {spans}")
+            for label, hours in w["labels"].most_common():
+                if hours >= 0.05:
+                    print(f"  {hours:5.2f}h  {label}")
+
     if as_json:
         payload = {
             "range": {"from": start, "to": end, "tz": str(tz)},
@@ -458,6 +579,15 @@ def report_range(sessions, tz, start, end, gap_minutes, as_json):
             "activity": {
                 str(day): {k: round(v, 2) for k, v in per_day[day].items()}
                 for day in sorted(per_day)
+            },
+            "worktime": {
+                str(day): {
+                    "hours": round(work[day]["hours"], 2),
+                    "lunch": work[day]["lunch"],
+                    "blocks": [[a.isoformat(), b.isoformat()] for a, b in work[day]["blocks"]],
+                    "labels": {k: round(v, 2) for k, v in work[day]["labels"].items() if v >= 0.05},
+                }
+                for day in sorted(work)
             },
         }
         with open(as_json, "w") as fh:
