@@ -19,8 +19,11 @@ Two views of the same raw material:
                90 min split). A block belongs whole to the day it started, and
                one starting before 05:00 belongs to the previous day. Lunch
                (0.5h) comes off a block of 4h+ that runs through 12:00-13:30.
-               Each stretch between two prompts goes to the worktree of the
-               earlier prompt. This is the timesheet's source.
+               Each stretch between two prompts goes to the session of the
+               later prompt (you were reading or writing it), except the part
+               before that session's question arrived. A reply to a question
+               that opens a block also counts the read since the question,
+               up to 30 min. This is the timesheet's source.
 
 Usage:
   scan-sessions.py --from 2026-09-21 --to 2026-09-27
@@ -63,6 +66,36 @@ DAY_START_HOUR = 5        # a block starting before this belongs to the previous
 LONE_PROMPT_H = 0.1       # the last prompt of a block still costs a few minutes
 LUNCH_H = 0.5
 LUNCH_MIN_BLOCK_H = 4
+READ_CAP = datetime.timedelta(minutes=30)   # reading a question before a reply that opens a block
+
+
+def asks_question(content):
+    """Does this agent record ask the user something (a '?' near the end, or the question tool)?"""
+    if isinstance(content, list) and any(
+        isinstance(p, dict) and p.get("type") == "tool_use" and p.get("name") == "AskUserQuestion"
+        for p in content
+    ):
+        return True
+    return "?" in block_text(content)[-600:]
+
+
+def mark_prompts(stream):
+    """[(ts, 'user'|'agent', asks)] in file order -> [(prompt_ts, question_ts or None)].
+
+    question_ts is the end of the agent turn before the prompt, kept only when
+    that turn asked something.
+    """
+    marks = []
+    last_agent = None
+    asked = False
+    for ts, who, asks in stream:
+        if who == "agent":
+            last_agent = ts
+            asked = asked or asks
+        else:
+            marks.append((ts, last_agent if asked else None))
+            last_agent, asked = None, False
+    return marks
 
 WEAK_TASK = 30
 
@@ -230,6 +263,7 @@ def session_record(path, harness, cwd, parent, events, task, source):
         "weak": len(task) <= WEAK_TASK,
         "subagents": 0,
         "prompt_times": [],
+        "prompt_marks": [],
     }
 
 
@@ -264,6 +298,7 @@ def load_claude_session(path):
     prompts = []
     goals = []
     prompt_times = []
+    stream = []
     title = ""
     parts = os.path.normpath(path).split(os.sep)
     parent = None
@@ -290,12 +325,16 @@ def load_claude_session(path):
                 prompts.append(p)
                 if ts and p.strip() and not obj.get("isSidechain") and not AUTOMATED_PROMPT.match(p.lstrip()):
                     prompt_times.append(ts)
+                    stream.append((ts, "user", False))
+        elif kind == "assistant" and ts and not obj.get("isSidechain"):
+            stream.append((ts, "agent", asks_question((obj.get("message") or {}).get("content"))))
 
     if not events:
         return None
     task, source = pick_task(goals, prompts, title)
     rec = session_record(path, "cc", cwd, parent, events, task, source)
     rec["prompt_times"] = prompt_times
+    rec["prompt_marks"] = mark_prompts(stream)
     return rec
 
 
@@ -304,6 +343,7 @@ def load_pi_session(path):
     events = []
     prompts = []
     prompt_times = []
+    stream = []
     goals = []
 
     with open(path, errors="replace") as fh:
@@ -337,12 +377,16 @@ def load_pi_session(path):
                     prompts.append(p)
                     if ts and p.strip() and not AUTOMATED_PROMPT.match(p.lstrip()):
                         prompt_times.append(ts)
+                        stream.append((ts, "user", False))
+                elif msg.get("role") == "assistant" and ts:
+                    stream.append((ts, "agent", asks_question(msg.get("content"))))
 
     if not events:
         return None
     task, source = pick_task(goals, prompts)
     rec = session_record(path, "pi", cwd, parent, events, task, source)
     rec["prompt_times"] = prompt_times
+    rec["prompt_marks"] = mark_prompts(stream)
     return rec
 
 
@@ -373,7 +417,9 @@ def collect(root, claude_root, tz, lo, hi):
         # Work days run 05:00-05:00, so prompts are read with the same shift.
         shift = datetime.timedelta(hours=DAY_START_HOUR)
         s["prompts_local"] = [
-            t.astimezone(tz) for t in s["prompt_times"] if lo + shift <= t.astimezone(tz) < hi + shift
+            (t.astimezone(tz), q.astimezone(tz) if q else None)
+            for t, q in s["prompt_marks"]
+            if lo + shift <= t.astimezone(tz) < hi + shift
         ]
         if not s["local"] and not s["prompts_local"]:
             continue
@@ -441,19 +487,28 @@ def worktime(sessions):
             continue
         base, detail = project_of(s["cwd"])
         label = f"{base}/{detail}" if detail else base
-        points += [(t, label) for t in s["prompts_local"]]
-    points.sort()
+        points += [(t, label, q) for t, q in s["prompts_local"]]
+    points.sort(key=lambda p: p[0])
     days = collections.defaultdict(lambda: {"blocks": [], "labels": collections.Counter()})
     block = None
-    for i, (t, label) in enumerate(points):
+    for i, (t, label, q) in enumerate(points):
         if block is None:
-            block = [t, t]
-            day = days[work_day(t)]
+            # A reply to a question that opens a block: the read before it counts.
+            start = t - min(t - q, READ_CAP) if q and q < t else t
+            block = [start, t]
+            day = days[work_day(start)]
             day["blocks"].append(block)
-        nxt = points[i + 1][0] if i + 1 < len(points) else None
-        if nxt is not None and nxt - t <= WORK_GAP:
-            block[1] = nxt
-            day["labels"][label] += (nxt - t).total_seconds() / 3600
+            day["labels"][label] += (t - start).total_seconds() / 3600
+        nxt = points[i + 1] if i + 1 < len(points) else None
+        if nxt is not None and nxt[0] - t <= WORK_GAP:
+            t2, label2, q2 = nxt
+            block[1] = t2
+            if q2 and q2 > t:
+                # Before the question arrived you were still on the previous thing.
+                day["labels"][label] += (q2 - t).total_seconds() / 3600
+                day["labels"][label2] += (t2 - q2).total_seconds() / 3600
+            else:
+                day["labels"][label2] += (t2 - t).total_seconds() / 3600
         else:
             day["labels"][label] += LONE_PROMPT_H
             block = None
