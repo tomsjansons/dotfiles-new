@@ -21,7 +21,8 @@ Two views of the same raw material:
                (0.5h) comes off a block of 4h+ that runs through 12:00-13:30.
                Each stretch between two prompts goes to the session of the
                later prompt (you were reading or writing it), except the part
-               before that session's question arrived. A reply to a question
+               before that session's question arrived; a gap before a
+               session's first prompt goes to the earlier one. A reply to a question
                that opens a block also counts the read since the question,
                up to 30 min. This is the timesheet's source.
 
@@ -80,10 +81,10 @@ def asks_question(content):
 
 
 def mark_prompts(stream):
-    """[(ts, 'user'|'agent', asks)] in file order -> [(prompt_ts, question_ts or None)].
+    """[(ts, 'user'|'agent', asks)] in file order -> [(prompt_ts, question_ts or None, first)].
 
     question_ts is the end of the agent turn before the prompt, kept only when
-    that turn asked something.
+    that turn asked something. first marks the session's opening prompt.
     """
     marks = []
     last_agent = None
@@ -93,7 +94,7 @@ def mark_prompts(stream):
             last_agent = ts
             asked = asked or asks
         else:
-            marks.append((ts, last_agent if asked else None))
+            marks.append((ts, last_agent if asked else None, not marks))
             last_agent, asked = None, False
     return marks
 
@@ -417,8 +418,8 @@ def collect(root, claude_root, tz, lo, hi):
         # Work days run 05:00-05:00, so prompts are read with the same shift.
         shift = datetime.timedelta(hours=DAY_START_HOUR)
         s["prompts_local"] = [
-            (t.astimezone(tz), q.astimezone(tz) if q else None)
-            for t, q in s["prompt_marks"]
+            (t.astimezone(tz), q.astimezone(tz) if q else None, first)
+            for t, q, first in s["prompt_marks"]
             if lo + shift <= t.astimezone(tz) < hi + shift
         ]
         if not s["local"] and not s["prompts_local"]:
@@ -487,11 +488,11 @@ def worktime(sessions):
             continue
         base, detail = project_of(s["cwd"])
         label = f"{base}/{detail}" if detail else base
-        points += [(t, label, q) for t, q in s["prompts_local"]]
+        points += [(t, label, q, first) for t, q, first in s["prompts_local"]]
     points.sort(key=lambda p: p[0])
     days = collections.defaultdict(lambda: {"blocks": [], "labels": collections.Counter()})
     block = None
-    for i, (t, label, q) in enumerate(points):
+    for i, (t, label, q, _first) in enumerate(points):
         if block is None:
             # A reply to a question that opens a block: the read before it counts.
             start = t - min(t - q, READ_CAP) if q and q < t else t
@@ -501,9 +502,12 @@ def worktime(sessions):
             day["labels"][label] += (t - start).total_seconds() / 3600
         nxt = points[i + 1] if i + 1 < len(points) else None
         if nxt is not None and nxt[0] - t <= WORK_GAP:
-            t2, label2, q2 = nxt
+            t2, label2, q2, first2 = nxt
             block[1] = t2
-            if q2 and q2 > t:
+            if first2:
+                # Opening a new session: the gap was spent on what came before.
+                day["labels"][label] += (t2 - t).total_seconds() / 3600
+            elif q2 and q2 > t:
                 # Before the question arrived you were still on the previous thing.
                 day["labels"][label] += (q2 - t).total_seconds() / 3600
                 day["labels"][label2] += (t2 - q2).total_seconds() / 3600
