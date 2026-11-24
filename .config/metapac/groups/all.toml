@@ -1,7 +1,6 @@
 arch = { packages = [
   "7zip", # Archive/compression utility for creating and extracting .7z, zip, tar, and other archives.
   "age",
-  "alacritty", # GPU-accelerated terminal emulator for your shell sessions.
   "android-emulator", # Android emulator runtime for testing Android apps and images locally.
   "android-google-apis-playstore-x86-64-system-image", # Google Play-enabled Android system image used by the Android emulator.
   "android-ndk", # Native Development Kit for compiling C/C++/Rust native code for Android.
@@ -34,11 +33,9 @@ arch = { packages = [
   "docker-compose", # Compose CLI for running multi-container development stacks.
   "efibootmgr", # Manages UEFI boot entries from Linux.
   "endcord", # Terminal Discord client.
-  "evince", # Document/PDF viewer.
   "exfatprogs", # exFAT tools for USB sticks/SD cards.
   "eza", # Modern ls replacement with colors, icons, and git status.
   "fd", # Fast find replacement used for file search in shell/editor workflows.
-  "firefox", # Firefox web browser.
   "flatpak", # Sandboxed desktop application package manager.
   "fzf", # Fuzzy finder used by shell, editor, and command-history workflows.
   "ghostty", # GPU-accelerated terminal emulator.
@@ -219,7 +216,6 @@ flatpak = { repos = [
   { name = "system:be.alexandervanhee.gradia", options = { remote = "flathub" } }, # Gradia screenshot annotation tool installed system-wide from Flathub.
   { name = "system:com.rustdesk.RustDesk", options = { remote = "flathub" } }, # RustDesk remote desktop client installed system-wide from Flathub.
   { name = "system:io.beekeeperstudio.Studio", options = { remote = "flathub" } }, # Beekeeper Studio SQL client.
-  { name = "system:io.freetubeapp.FreeTube", options = { remote = "flathub" } }, # FreeTube YouTube client.
   { name = "system:org.kde.kdenlive", options = { remote = "flathub" } }, # Kdenlive video editor installed from Flathub.
 ] }
 pnpm = { packages = [
