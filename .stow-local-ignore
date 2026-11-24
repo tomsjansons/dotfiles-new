@@ -1,5 +1,6 @@
 # Custom ignores
 ^/etc(/.*)?$
+^/usr(/.*)?$
 ^/\.config/systemd/user/.*\.wants$
 ^/\.config/systemd/user/.*\.requires$
 ^/\.config/herdr/.*\.log$

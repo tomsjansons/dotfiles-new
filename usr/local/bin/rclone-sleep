@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Detach rclone FUSE mounts before system sleep and bring them back after.
+#
+# Why: while suspending, the network goes down first. Any process blocked on an
+# rclone mount (e.g. a `du` crawling into it) then sits in uninterruptible
+# sleep, the kernel cannot freeze it, suspend fails, and logind retries forever
+# while the lid is closed.
+#
+# Run as root by rclone-sleep.service (pre = before sleep, post = after resume).
+set -u
+
+MOUNT_USER=toms
+UNITS=(devinator-share-mount.service hermis-workspace-mount.service)
+STATE=/run/rclone-sleep.units
+
+user_systemctl() { systemctl --user -M "${MOUNT_USER}@" "$@"; }
+
+case "${1:-}" in
+pre)
+	: >"$STATE"
+	for u in "${UNITS[@]}"; do
+		user_systemctl is-active --quiet "$u" && echo "$u" >>"$STATE"
+	done
+
+	# 1. Abort the FUSE connections. This fails every pending request with
+	#    ENOTCONN, so anything stuck reading the mount wakes up and can freeze.
+	#    findmnt reads mountinfo only, so it never touches a hung mount.
+	while read -r target majmin; do
+		minor=${majmin#*:}
+		if [[ -w /sys/fs/fuse/connections/$minor/abort ]]; then
+			echo 1 >"/sys/fs/fuse/connections/$minor/abort"
+			echo "aborted fuse connection $minor ($target)"
+		fi
+	done < <(findmnt -rn -t fuse.rclone -o TARGET,MAJ:MIN)
+
+	# 2. Stop the mount services so systemd does not restart rclone mid-suspend.
+	if [[ -s $STATE ]]; then
+		mapfile -t active <"$STATE"
+		timeout 20 systemctl --user -M "${MOUNT_USER}@" stop "${active[@]}" ||
+			echo "stopping ${active[*]} timed out"
+	fi
+
+	# 3. Lazily detach whatever is still mounted.
+	findmnt -rn -t fuse.rclone -o TARGET | while read -r target; do
+		umount -l "$target" && echo "detached $target"
+	done
+	;;
+post)
+	# --no-block: do not delay resume waiting for the network. If it is not up
+	# yet, the units fail and Restart=on-failure retries every 10s.
+	if [[ -s $STATE ]]; then
+		mapfile -t active <"$STATE"
+		user_systemctl start --no-block "${active[@]}" && echo "restarted ${active[*]}"
+	fi
+	rm -f "$STATE"
+	;;
+*)
+	echo "usage: $0 pre|post" >&2
+	exit 2
+	;;
+esac
+exit 0

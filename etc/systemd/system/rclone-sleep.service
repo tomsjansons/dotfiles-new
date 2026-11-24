@@ -1,0 +1,15 @@
+# Installed as a copy (not a symlink): root runs this, so it must not point
+# into a user-writable home directory. See usr/local/bin/rclone-sleep.
+[Unit]
+Description=Detach rclone FUSE mounts around system sleep
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/rclone-sleep pre
+ExecStop=/usr/local/bin/rclone-sleep post
+
+[Install]
+WantedBy=sleep.target

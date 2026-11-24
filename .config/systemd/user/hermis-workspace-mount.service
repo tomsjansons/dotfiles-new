@@ -1,0 +1,21 @@
+[Unit]
+Description=rclone WebDAV mount of files.fm hermis-agent-workspaces
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/rclone mount filesfm:hermis-agent-workspaces %h/hermis-agent-workspace \
+  --vfs-cache-mode writes \
+  --vfs-cache-max-size 5G \
+  --dir-cache-time 1m \
+  --contimeout 15s \
+  --timeout 30s \
+  --log-level INFO \
+  --log-file %h/.cache/rclone/filesfm-mount.log
+ExecStop=/usr/bin/fusermount3 -uz %h/hermis-agent-workspace
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

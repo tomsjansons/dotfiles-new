@@ -1,0 +1,21 @@
+[Unit]
+Description=rclone WebDAV mount of files.fm devinator-share
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/rclone mount filesfm:devinator-share %h/devinator-share \
+  --vfs-cache-mode writes \
+  --vfs-cache-max-size 5G \
+  --dir-cache-time 1m \
+  --contimeout 15s \
+  --timeout 30s \
+  --log-level INFO \
+  --log-file %h/.cache/rclone/devinator-share-mount.log
+ExecStop=/usr/bin/fusermount3 -uz %h/devinator-share
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
