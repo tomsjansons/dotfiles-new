@@ -20,12 +20,9 @@ arch = { packages = [
   "base", # Core Arch Linux userspace required for a bootable system.
   "base-devel", # Compiler and build toolchain group used for AUR packages and local development.
   "bat", # Syntax-highlighting replacement for cat, used for readable file previews.
-  "batsignal", # Battery notification daemon for warning about low or full battery levels.
   "bind", # DNS utilities such as dig and nslookup for DNS diagnostics.
   "blender", # 3D modelling, animation and rendering suite.
   "bluez-utils", # Bluetooth command-line utilities and services for pairing and managing devices.
-  "brightnessctl", # Backlight and LED brightness control utility for laptops and Wayland keybindings.
-  "cliphist", # Wayland clipboard history daemon/tool, typically used with wl-clipboard and launchers.
   "cups", # Printing system service.
   "cups-pdf", # Virtual PDF printer for CUPS.
   "cursor-bin", # Cursor AI code editor.
@@ -103,7 +100,7 @@ arch = { packages = [
   "networkmanager", # Netowrk manager for all network related things
   "ngrok", # Tunnel client for exposing local development servers.
   "niri", # Scrollable-tiling Wayland compositor.
-  "noctalia", # Desktop shell components/theme, likely used with your Wayland setup.
+  "noctalia", # Desktop shell: bar, launcher, notifications, lock screen, idle, wallpaper, night light, clipboard history, battery warnings, OSD.
   "noto-color-emoji-fontconfig", # Fontconfig setup to prefer Noto Color Emoji for emoji rendering.
   "noto-fonts-emoji", # Noto emoji font package.
   "ntfs-3g", # NTFS read/write support for external drives.
@@ -135,7 +132,6 @@ arch = { packages = [
   "qgis", # Desktop GIS application for geospatial analysis.
   "rclone", # Sync files to/from cloud storage.
   "ripgrep", # Fast grep replacement used for code and text search.
-  "rofi", # Application launcher/window switcher/menu tool.
   "rsync", # Fast incremental file copy/sync.
   "rtkit", # Realtime scheduling for PipeWire audio.
   "rustup", # Rust toolchain installer and version manager.
@@ -149,10 +145,6 @@ arch = { packages = [
   "steam", # Steam game client.
   "stow", # Symlink farm manager often used for dotfiles.
   "strace", # Syscall tracer for debugging processes.
-  "swaybg", # Wayland wallpaper/background setter.
-  "swayidle", # Wayland idle daemon for locking/sleep actions.
-  "swaylock", # Wayland screen locker.
-  "swaync", # Wayland notification center/daemon.
   "system-config-printer", # Graphical printer configuration tool.
   "t3code-bin", # T3 Chat/code assistant desktop app or CLI package for AI-assisted development.
   "tailscale", # Mesh VPN client for private connectivity between your devices.
@@ -173,11 +165,9 @@ arch = { packages = [
   "virt-manager", # GUI for managing libvirt/QEMU virtual machines.
   "vulkan-intel", # Intel Vulkan graphics driver.
   "watchman-bin", # File watching service used by development tools.
-  "waybar", # Wayland status bar, commonly used with wlroots compositors.
   "wget", # Command-line file downloader.
   "wireplumber", # PipeWire session/policy manager.
   "wl-clipboard", # Wayland clipboard command-line tools wl-copy and wl-paste.
-  "wlsunset", # Wayland blue-light/night color temperature adjustment.
   "worktrunk", # Work/project organization utility package kept in your desktop tooling set.
   "wpa_supplicant", # Wi-Fi authentication daemon, useful as backend/fallback for wireless networking.
   "xdg-desktop-portal-gnome", # Desktop portal backend for sandboxed apps, screen sharing, and file pickers.

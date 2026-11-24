@@ -7,14 +7,10 @@
 // Find the full list of options on the wiki:
 // https://github.com/YaLTeR/niri/wiki/Configuration:-Input
 
-// spawn-at-startup "batsignal -b"
-// spawn-at-startup "waybar"
-// spawn-at-startup "swaync"
+// Noctalia provides the bar, notifications, wallpaper, lock screen, idle,
+// night light, clipboard history and battery warnings.
 // polkit agent: lets pkexec (ArtCraft launcher, Disks, virt-manager...) prompt for the password
 spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
-// spawn-at-startup "bash" "-c" "\"xwayland-satellite || libnotify --wait --urgency critical xwayland-crashed\""
-// spawn-at-startup "bash" "/home/toms/.config/system_resources/swaybg.sh"
-// spawn-at-startup "bash" "/home/toms/.config/system_resources/swayidle.sh"
 spawn-sh-at-startup "LC_ALL=en_GB.UTF-8 noctalia"
 
 debug {
@@ -433,8 +429,8 @@ binds {
 
   Mod+T { spawn "/home/toms/.config/system_resources/float-numbat.sh"; }
   Mod+Shift+T { spawn "/home/toms/.config/system_resources/float-htop.sh"; }
-  Mod+Y { spawn "/home/toms/.config/system_resources/float-impala.sh"; }
-  Mod+Shift+Y { spawn "/home/toms/.config/system_resources/float-bluetui.sh"; }
+  Mod+Y { spawn-sh "noctalia msg panel-toggle control-center wifi"; }
+  Mod+Shift+Y { spawn-sh "noctalia msg panel-toggle control-center bluetooth"; }
   Mod+Q { spawn "ghostty"; }
   Mod+W { spawn "nautilus"; }
   Mod+Shift+W { spawn "/home/toms/.config/system_resources/float-yazi.sh"; }
@@ -449,15 +445,16 @@ binds {
   Mod+Shift+bracketleft   allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "5%-"; }
   XF86AudioMute           allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
   XF86AudioMicMute        allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"; }
-  XF86AudioPlay           allow-when-locked=true { spawn "playerctl" "play-pause"; }
-  Mod+P                   allow-when-locked=true { spawn "playerctl" "play-pause"; }
-  XF86AudioNext           allow-when-locked=true { spawn "playerctl" "next"; }
-  Mod+bracketright        allow-when-locked=true { spawn "playerctl" "next"; }
-  XF86AudioPrev           allow-when-locked=true { spawn "playerctl" "previous"; }
-  Mod+bracketleft         allow-when-locked=true { spawn "playerctl" "previous"; }
+  XF86AudioPlay           allow-when-locked=true { spawn "noctalia" "msg" "media" "toggle"; }
+  Mod+P                   allow-when-locked=true { spawn "noctalia" "msg" "media" "toggle"; }
+  XF86AudioNext           allow-when-locked=true { spawn "noctalia" "msg" "media" "next"; }
+  Mod+bracketright        allow-when-locked=true { spawn "noctalia" "msg" "media" "next"; }
+  XF86AudioPrev           allow-when-locked=true { spawn "noctalia" "msg" "media" "previous"; }
+  Mod+bracketleft         allow-when-locked=true { spawn "noctalia" "msg" "media" "previous"; }
 
-  XF86MonBrightnessDown allow-when-locked=true { spawn "brillo" "-q" "-U" "5"; }
-  XF86MonBrightnessUp 	allow-when-locked=true { spawn "brillo" "-q" "-A" "5"; }
+  // Laptop panel brightness (keys live on the laptop keyboard).
+  XF86MonBrightnessDown allow-when-locked=true { spawn "noctalia" "msg" "brightness-down" "eDP-1" "5"; }
+  XF86MonBrightnessUp   allow-when-locked=true { spawn "noctalia" "msg" "brightness-up" "eDP-1" "5"; }
 
   Mod+C { close-window; }
 
