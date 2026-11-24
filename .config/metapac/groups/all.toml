@@ -1,6 +1,5 @@
 arch = { packages = [
   "7zip", # Archive/compression utility for creating and extracting .7z, zip, tar, and other archives.
-  "acpi", # Reads battery, thermal, and AC adapter status from the kernel; useful for laptop power checks and scripts.
   "age",
   "alacritty", # GPU-accelerated terminal emulator for your shell sessions.
   "android-emulator", # Android emulator runtime for testing Android apps and images locally.
@@ -11,10 +10,11 @@ arch = { packages = [
   "android-sdk-cmdline-tools-latest", # Android SDK command-line manager tools, including sdkmanager and avdmanager.
   "android-sdk-platform-tools", # ADB and Fastboot tools for Android device debugging and flashing.
   "android-tools", # Arch-provided Android platform utilities, mainly adb and fastboot.
+  "android-udev", # udev rules so adb/fastboot can access USB devices without root.
   "ansible", # Automation tool for provisioning machines and applying repeatable system configuration.
-  "anyrun-git", # Wayland application launcher/search runner, likely used with your Niri/COSMIC desktop setup.
   "archiso", # Arch Linux ISO creation tools for building custom installer or recovery images.
   "asciinema", # Terminal session recorder for capturing demos and command-line workflows.
+  "artcraft-launcher-bin", # ArtCraft launcher: installs/updates the *craft apps as AppImages in ~/Applications (CLIs via ~/.local/bin/craft-cli shims).
   "aspell-en", # English dictionary for aspell spell checking in editors and mail tools.
   "aspell-lv", # Latvian dictionary for aspell spell checking.
   "base", # Core Arch Linux userspace required for a bootable system.
@@ -22,10 +22,9 @@ arch = { packages = [
   "bat", # Syntax-highlighting replacement for cat, used for readable file previews.
   "batsignal", # Battery notification daemon for warning about low or full battery levels.
   "bind", # DNS utilities such as dig and nslookup for DNS diagnostics.
+  "blender", # 3D modelling, animation and rendering suite.
   "bluez-utils", # Bluetooth command-line utilities and services for pairing and managing devices.
-  "brave-bin", # Brave web browser binary package.
   "brightnessctl", # Backlight and LED brightness control utility for laptops and Wayland keybindings.
-  "brillo", # Alternative brightness control utility, often useful in Wayland scripts.
   "cliphist", # Wayland clipboard history daemon/tool, typically used with wl-clipboard and launchers.
   "cups", # Printing system service.
   "cups-pdf", # Virtual PDF printer for CUPS.
@@ -38,8 +37,8 @@ arch = { packages = [
   "docker-compose", # Compose CLI for running multi-container development stacks.
   "efibootmgr", # Manages UEFI boot entries from Linux.
   "endcord", # Terminal Discord client.
-  "evil-helix-bin", # Helix-based modal editor variant with Vim-style behavior.
   "evince", # Document/PDF viewer.
+  "exfatprogs", # exFAT tools for USB sticks/SD cards.
   "eza", # Modern ls replacement with colors, icons, and git status.
   "fd", # Fast find replacement used for file search in shell/editor workflows.
   "firefox", # Firefox web browser.
@@ -49,7 +48,6 @@ arch = { packages = [
   "git", # Version control system used for source code and dotfiles.
   "git-delta", # Improved git diff pager with syntax highlighting.
   "git-filter-repo", # Tool for rewriting git repository history safely.
-  "git-secrets", # Git hooks for preventing secrets from being committed.
   "github-cli", # GitHub command-line client for issues, PRs, releases, and auth.
   "gnome-calculator", # Graphical calculator.
   "gnome-calendar", # Graphical calendar application.
@@ -59,8 +57,7 @@ arch = { packages = [
   "gnome-text-editor", # Simple GNOME graphical text editor.
   "gofumpt", # Stricter Go formatter used in Go development.
   "golangci-lint", # Aggregated Go linter runner for Go projects.
-  "google-chrome", # Google Chrome browser for testing and web compatibility.
-  "goose", # Database migration tool written in Go
+  "goose-bin", # Database migration tool written in Go
   "gpxsee", # GPS log/map viewer for GPX and related geodata files.
   "greetd", # Minimal display/login manager for starting Wayland sessions.
   "greetd-tuigreet", # Text-based greetd login greeter.
@@ -68,6 +65,9 @@ arch = { packages = [
   "gst-plugin-pipewire", # GStreamer plugin allowing apps to use PipeWire audio/video streams.
   "guestfs-tools", # Tools for inspecting and modifying virtual machine disk images.
   "handy-bin", # Handy utility/app package from AUR; kept for its desktop workflow features.
+  "helium-browser-bin", # Helium Chromium-based browser.
+  "herdr-bin", # herdr terminal tool.
+  "hex-bin", # hex app.
   "htop", # Interactive process and resource monitor.
   "imagemagick", # Image conversion and manipulation command-line toolkit.
   "intel-media-driver", # Intel VA-API media driver for hardware video acceleration.
@@ -77,15 +77,16 @@ arch = { packages = [
   "k9s", # Terminal UI for inspecting and managing Kubernetes clusters.
   "kcharselect", # KDE character picker for Unicode symbols.
   "keepassxc", # Local password manager and secret vault.
+  "keyd", # Key remapping daemon.
   "kubectl", # Kubernetes command-line client.
   "lazydocker", # Terminal UI for Docker containers, images, logs, and compose stacks.
   "lazygit", # Terminal UI for git repositories.
+  "lib32-vulkan-intel", # 32-bit Intel Vulkan driver (Steam/Proton).
   "libguestfs", # Library/runtime used by guestfs tools for VM disk access.
   "libmemcached-awesome", # Memcached client library dependency for software that talks to Memcached.
   "libnotify", # Desktop notification library and notify-send command support.
   "libpulse", # PulseAudio client library used by apps; works through PipeWire Pulse on your system.
   "libreoffice-fresh", # LibreOffice office suite.
-  "libva-intel-driver", # Older Intel VA-API driver for hardware video acceleration on supported GPUs.
   "linux", # Main Arch Linux kernel package.
   "linux-firmware", # Firmware blobs required by Wi-Fi, GPU, audio, and other hardware.
   "lldb", # LLVM debugger for C/C++/Rust native debugging.
@@ -96,29 +97,26 @@ arch = { packages = [
   "mariadb", # MariaDB database server/client for local development.
   "metapac", # Declarative package manager used to manage this package manifest.
   "mise", # Runtime/tool version manager for languages and CLIs.
-  "mprocs-bin", # Terminal process runner for managing multiple long-running commands.
   "mysql++", # C++ MySQL/MariaDB client library.
   "nautilus", # GNOME file manager.
   "neofetch", # System information summary tool.
   "neovim", # Primary terminal editor/IDE.
-  "neovim-remote", # Remote-control helper for Neovim instances.
   "networkmanager", # Netowrk manager for all network related things
   "ngrok", # Tunnel client for exposing local development servers.
   "niri", # Scrollable-tiling Wayland compositor.
   "noctalia", # Desktop shell components/theme, likely used with your Wayland setup.
   "noto-color-emoji-fontconfig", # Fontconfig setup to prefer Noto Color Emoji for emoji rendering.
   "noto-fonts-emoji", # Noto emoji font package.
-  "numbat-bin", # Command-line calculator with units and dimensional analysis.
+  "ntfs-3g", # NTFS read/write support for external drives.
+  "numbat", # Command-line calculator with units and dimensional analysis.
   "obsidian", # Markdown knowledge base and note-taking app.
   "oh-my-posh-bin", # Cross-shell prompt theme engine.
   "open-iscsi", # iSCSI initiator tools for connecting to network block devices.
   "openbsd-netcat", # nc networking utility for TCP/UDP testing and scripting.
   "openssh", # SSH client/server tools for remote access and git transport.
-  "osmium-tool", # OpenStreetMap data processing command-line tool.
   "papers", # GNOME document viewer app.
   "partitionmanager", # KDE partition manager GUI.
-  "paru", # AUR helper and pacman wrapper.
-  "paru-debug", # Debug package support for paru/AUR workflows.
+  "paru-bin", # AUR helper and pacman wrapper.
   "pavucontrol", # PulseAudio/PipeWire volume control GUI.
   "perf", # Linux performance profiling tool.
   "pipewire", # Modern Linux audio/video server.
@@ -136,9 +134,11 @@ arch = { packages = [
   "qemu-base", # Core QEMU emulation/virtualization tools.
   "qemu-desktop", # QEMU desktop integration and system emulators for virtual machines.
   "qgis", # Desktop GIS application for geospatial analysis.
-  "qt5ct-kde", # Qt5 configuration tool/style integration for KDE/Qt apps.
+  "rclone", # Sync files to/from cloud storage.
   "ripgrep", # Fast grep replacement used for code and text search.
   "rofi", # Application launcher/window switcher/menu tool.
+  "rsync", # Fast incremental file copy/sync.
+  "rtkit", # Realtime scheduling for PipeWire audio.
   "rustup", # Rust toolchain installer and version manager.
   "smartmontools", # Disk SMART health monitoring tools.
   "snapshot", # GNOME camera app.
@@ -149,6 +149,7 @@ arch = { packages = [
   "squashfs-tools", # Tools for creating/extracting SquashFS images, used by ISO/live media workflows.
   "steam", # Steam game client.
   "stow", # Symlink farm manager often used for dotfiles.
+  "strace", # Syscall tracer for debugging processes.
   "swaybg", # Wayland wallpaper/background setter.
   "swayidle", # Wayland idle daemon for locking/sleep actions.
   "swaylock", # Wayland screen locker.
@@ -159,6 +160,7 @@ arch = { packages = [
   "tailwindcss-language-server", # Language server for Tailwind CSS completions and diagnostics.
   "tealdeer", # Fast tldr client for concise command examples.
   "tmux", # Terminal multiplexer for persistent shell sessions.
+  "tolaria-bin", # Tolaria app.
   "totem", # GNOME video player.
   "traceroute", # Network path diagnostic tool.
   "tree-sitter-cli", # Parser generator CLI used by editors and language tooling.
@@ -170,38 +172,24 @@ arch = { packages = [
   "vcpkg", # C/C++ package manager for native development dependencies.
   "vim", # Classic terminal editor, useful as a fallback and for remote systems.
   "virt-manager", # GUI for managing libvirt/QEMU virtual machines.
-  "virt-viewer", # Viewer for virtual machine graphical consoles.
-  "virtualbox", # VirtualBox virtualization platform.
-  "vivaldi", # Vivaldi web browser.
   "vulkan-intel", # Intel Vulkan graphics driver.
-  "vulkan-radeon", # AMD Radeon Vulkan graphics driver.
   "watchman-bin", # File watching service used by development tools.
   "waybar", # Wayland status bar, commonly used with wlroots compositors.
-  "wev", # Wayland event viewer for identifying keyboard/mouse input events.
   "wget", # Command-line file downloader.
-  "wireless_tools", # Legacy wireless networking utilities such as iwconfig.
   "wireplumber", # PipeWire session/policy manager.
   "wl-clipboard", # Wayland clipboard command-line tools wl-copy and wl-paste.
   "wlsunset", # Wayland blue-light/night color temperature adjustment.
-  "wofi", # Wayland launcher/menu tool.
   "worktrunk", # Work/project organization utility package kept in your desktop tooling set.
   "wpa_supplicant", # Wi-Fi authentication daemon, useful as backend/fallback for wireless networking.
   "xdg-desktop-portal-gnome", # Desktop portal backend for sandboxed apps, screen sharing, and file pickers.
   "xdg-utils", # Standard xdg-open and desktop integration helper scripts.
-  "xf86-video-amdgpu", # Xorg AMDGPU video driver.
-  "xf86-video-ati", # Xorg ATI/Radeon video driver for older AMD GPUs.
-  "xf86-video-nouveau", # Xorg open-source NVIDIA video driver.
-  "xf86-video-vmware", # Xorg VMware virtual GPU driver.
   "xonsh", # Python-powered shell for interactive use and scripting.
-  "xorg-server", # Xorg display server for X11 sessions and compatibility.
-  "xorg-xinit", # startx/xinit support for launching X sessions manually.
   "xorg-xwayland", # Xwayland compatibility server for running X11 apps under Wayland.
   "xwayland-satellite", # Rootless Xwayland helper for compositors without built-in Xwayland management.
-  "yaak",
+  "yaak-bin", # Yaak API client (REST/GraphQL/gRPC).
   "yazi", # Terminal file manager with previews.
   "zed", # Zed code editor.
   "zellij", # Terminal workspace/multiplexer.
-  "zen-browser-bin", # Zen web browser.
   "zig-bin", # Zig compiler/toolchain.
   "zoom", # Zoom video conferencing client.
   "zram-generator", # Configures compressed RAM swap devices.
@@ -229,12 +217,20 @@ cargo = { packages = [
   ] } },
   { name = "zizmor", options = { version = "1.20.0", features = [ # Static analyzer for GitHub Actions security issues.
   ] } },
+  { name = "heron", options = { version = "0.1.0", features = [
+  ] } },
+  { name = "herond", options = { version = "0.1.0", features = [
+  ] } },
+  { name = "magpie", options = { version = "0.1.0", features = [
+  ] } },
 ] }
 flatpak = { repos = [
   { name = "system:flathub", options = { url = "https://dl.flathub.org/repo/" } }, # Flathub remote repository used as the source for the system Flatpak apps below.
 ], packages = [
   { name = "system:be.alexandervanhee.gradia", options = { remote = "flathub" } }, # Gradia screenshot annotation tool installed system-wide from Flathub.
   { name = "system:com.rustdesk.RustDesk", options = { remote = "flathub" } }, # RustDesk remote desktop client installed system-wide from Flathub.
+  { name = "system:io.beekeeperstudio.Studio", options = { remote = "flathub" } }, # Beekeeper Studio SQL client.
+  { name = "system:io.freetubeapp.FreeTube", options = { remote = "flathub" } }, # FreeTube YouTube client.
   { name = "system:org.kde.kdenlive", options = { remote = "flathub" } }, # Kdenlive video editor installed from Flathub.
 ] }
 pnpm = { packages = [
@@ -245,5 +241,22 @@ pnpm = { packages = [
   "agentic-cli", # Agentic command-line tooling for AI-assisted tasks.
   "eas-cli", # Expo Application Services CLI for building/deploying Expo/React Native apps.
   "opencode-ai", # OpenCode AI coding agent CLI.
+  "@anthropic-ai/claude-code",
+  "@deepseek-ai/dsh",
+  "@steipete/summarize",
+  "command-code",
+  "howcode",
+  "hunkdiff",
+  "wrangler",
   "vscode-langservers-extracted", # HTML/CSS/JSON/ESLint language servers extracted from VS Code.
+] }
+mise = { packages = [
+  { name = "bun", options = { version = "latest" } },
+  { name = "deno", options = { version = "latest" } },
+  { name = "go", options = { version = "latest" } },
+  { name = "java", options = { version = "latest" } },
+  { name = "node", options = { version = "latest" } },
+  { name = "pnpm", options = { version = "11" } },
+  { name = "python", options = { version = "latest" } },
+  { name = "yarn", options = { version = "latest" } },
 ] }

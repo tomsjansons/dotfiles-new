@@ -90,6 +90,7 @@ export KUBECONFIG=/home/toms/.kube/config
 export TERMINAL=ghostty
 export RIPGREP_CONFIG_PATH=/home/toms/.config/ripgrep/config
 export VCPKG_ROOT="/home/toms/vcpkg"
+alias mpup="metapac update-all && metapac sync && metapac clean"  # full upgrade + reconcile with ~/.config/metapac
 alias source-me="source ~/.zshrc"
 alias lsa="eza --long --all --icons=always --git --time-style=long-iso --octal-permissions --no-user"
 alias lsas="eza --long --all --icons=always --git --time-style=long-iso --octal-permissions --no-user --total-size"
