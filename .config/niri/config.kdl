@@ -10,7 +10,8 @@
 // spawn-at-startup "batsignal -b"
 // spawn-at-startup "waybar"
 // spawn-at-startup "swaync"
-// spawn-at-startup "bash" "-c" "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+// polkit agent: lets pkexec (ArtCraft launcher, Disks, virt-manager...) prompt for the password
+spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
 // spawn-at-startup "bash" "-c" "\"xwayland-satellite || libnotify --wait --urgency critical xwayland-crashed\""
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swaybg.sh"
 // spawn-at-startup "bash" "/home/toms/.config/system_resources/swayidle.sh"
