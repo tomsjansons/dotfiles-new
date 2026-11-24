@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MailCraft
+Comment=Open files in MailCraft (newest ArtCraft AppImage)
+Exec=/home/toms/.local/bin/craft-open mailcraft %F
+Icon=io.github.billsecond.mailcraft
+Terminal=false
+NoDisplay=true
+MimeType=message/rfc822;

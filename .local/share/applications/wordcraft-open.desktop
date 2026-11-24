@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WordCraft
+Comment=Open files in WordCraft (newest ArtCraft AppImage)
+Exec=/home/toms/.local/bin/craft-open wordcraft %F
+Icon=ai.storyteller.wordcraft
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.wordprocessingml.template;application/msword;application/vnd.oasis.opendocument.text;application/rtf;text/rtf;

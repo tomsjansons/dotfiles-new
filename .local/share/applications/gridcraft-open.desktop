@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GridCraft
+Comment=Open files in GridCraft (newest ArtCraft AppImage)
+Exec=/home/toms/.local/bin/craft-open gridcraft %F
+Icon=ai.storyteller.gridcraft
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;text/csv;text/tab-separated-values;

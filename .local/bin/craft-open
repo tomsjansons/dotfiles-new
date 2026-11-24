@@ -1,0 +1,21 @@
+#!/bin/sh
+# Opens files in an ArtCraft *craft app: craft-open <app> [file...]
+#
+# The ArtCraft launcher's own .desktop files hard-code a versioned, quoted AppImage path
+# (rewritten on every update), which xdg-utils cannot parse, so xdg-open never uses them.
+# The <app>-open.desktop entries in ~/.local/share/applications call this instead and
+# carry the MimeType associations; it runs the newest <app>-*.AppImage in ~/Applications.
+set -eu
+
+[ $# -ge 1 ] || { echo "usage: craft-open <app> [file...]" >&2; exit 2; }
+app=$1
+shift
+
+img=$(ls -1t "$HOME"/Applications/"$app"-*-linux-*.AppImage 2>/dev/null | head -n1 || true)
+if [ -z "$img" ]; then
+	notify-send -a craft-open "$app is not installed" "Install it from the ArtCraft launcher." 2>/dev/null || true
+	echo "craft-open: no $app AppImage in ~/Applications" >&2
+	exit 127
+fi
+
+exec "$img" "$@"

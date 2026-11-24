@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DeckCraft
+Comment=Open files in DeckCraft (newest ArtCraft AppImage)
+Exec=/home/toms/.local/bin/craft-open deckcraft %F
+Icon=ai.storyteller.deckcraft
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation;
