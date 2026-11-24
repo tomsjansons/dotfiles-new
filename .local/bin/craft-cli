@@ -1,0 +1,42 @@
+#!/bin/sh
+# Runs the CLI bundled inside an ArtCraft app's AppImage.
+#
+# The ArtCraft launcher installs the *craft apps as AppImages in ~/Applications, which only
+# expose the GUI. Symlink this script as `<app>-cli` (e.g. filmcraft-cli -> craft-cli) and it
+# pulls usr/bin/<app>-cli out of the newest <app>-*.AppImage, caches it per AppImage file, and
+# execs it with all arguments, so stdio/signals behave exactly like the real binary (MCP-safe).
+set -eu
+
+name=$(basename "$0")
+[ "$name" = craft-cli ] && { echo "usage: symlink this as <app>-cli, e.g. ln -s craft-cli filmcraft-cli" >&2; exit 2; }
+app=${name%-cli}
+
+img=$(ls -1t "$HOME"/Applications/"$app"-*-linux-*.AppImage 2>/dev/null | head -n1 || true)
+if [ -z "$img" ]; then
+	echo "$name: no $app AppImage in ~/Applications; install $app from the ArtCraft launcher" >&2
+	exit 127
+fi
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/craft-cli/$(basename "$img")"
+bin="$cache/$name"
+
+if [ ! -x "$bin" ]; then
+	# The squashfs payload starts right after the AppImage runtime's ELF section headers.
+	shoff=$(readelf -h "$img" | awk '/Start of section headers/ {print $5}')
+	shentsize=$(readelf -h "$img" | awk '/Size of section headers/ {print $5}')
+	shnum=$(readelf -h "$img" | awk '/Number of section headers/ {print $5}')
+	offset=$((shoff + shentsize * shnum))
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	unsquashfs -q -n -o "$offset" -d "$tmp/root" "$img" "usr/bin/$name" >/dev/null
+	mkdir -p "$cache"
+	mv "$tmp/root/usr/bin/$name" "$bin"
+	# Drop cached CLIs from older AppImages of this app.
+	for old in "${XDG_CACHE_HOME:-$HOME/.cache}/craft-cli/$app"-*; do
+		[ "$old" = "$cache" ] || rm -rf "$old"
+	done
+	rm -rf "$tmp"
+	trap - EXIT
+fi
+
+exec "$bin" "$@"
