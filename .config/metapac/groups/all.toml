@@ -86,7 +86,6 @@ arch = { packages = [
   "libmemcached-awesome", # Memcached client library dependency for software that talks to Memcached.
   "libnotify", # Desktop notification library and notify-send command support.
   "libpulse", # PulseAudio client library used by apps; works through PipeWire Pulse on your system.
-  "libreoffice-fresh", # LibreOffice office suite.
   "linux", # Main Arch Linux kernel package.
   "linux-firmware", # Firmware blobs required by Wi-Fi, GPU, audio, and other hardware.
   "lldb", # LLVM debugger for C/C++/Rust native debugging.
