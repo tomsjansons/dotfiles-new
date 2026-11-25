@@ -30,6 +30,9 @@
 #
 # Usage: orp-cleanup [-n|--dry-run] [-y|--yes]
 orp-cleanup() {
+  # Own option set: callers may run with e.g. NO_BARE_GLOB_QUAL, which breaks
+  # the (N/) glob qualifiers below.
+  emulate -L zsh
   local dry_run=0 assume_yes=0
   while (( $# )); do
     case "$1" in
