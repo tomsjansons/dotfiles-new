@@ -14,8 +14,10 @@
 # tmux session.
 #
 # Also removes T3 Code worktrees and scratch folders no live T3 thread uses
-# (T3 itself removes the worktrees its threads own), keeping stacks bound to
-# T3 worktrees alive while the worktree exists.
+# (T3 itself removes the worktrees its threads own), plus worktrees whose own
+# (user-created) threads all settled over $ORP_T3_WORKTREE_SETTLED_HOURS
+# (default 24) hours ago, whatever agent-created sub-threads remain. Stacks
+# bound to T3 worktrees stay alive while the worktree exists.
 #
 # Also removes herdr worktrees (~/.herdr/worktrees) that no open herdr
 # workspace or pane uses, Claude Code worktrees (<repo>/.claude/worktrees)
@@ -59,31 +61,43 @@ orp-cleanup() {
   # own (storageCleanup settings); this only takes what no live thread
   # references: worktrees whose threads are all deleted or that no thread ever
   # recorded, and scratch folders likewise or whose threads all settled over
-  # $ORP_T3_SCRATCH_DAYS (default 14) days ago. Liveness comes from T3's own
+  # $ORP_T3_SCRATCH_DAYS (default 14) days ago. A worktree also goes once every
+  # user-created thread on it settled over $ORP_T3_WORKTREE_SETTLED_HOURS
+  # (default 24) hours ago: agent loops spawn sub-threads (createdBy=agent)
+  # that nobody settles or deletes, and they would otherwise pin the worktree
+  # and its stack forever. Worktrees with only agent threads keep the old rule. Liveness comes from T3's own
   # thread table, read-only; skipped entirely if it can't be read, so an
   # unreadable DB never reads as "no threads". Anything modified within the
   # last hour is kept (T3 creates a worktree before its thread row), as is
   # anything a running process is inside.
   local t3_home="${T3CODE_HOME:-$HOME/.t3}" t3_rows t3_ok=0 t3_path t3_alive t3_unsettled t3_settled
   local t3_root="${T3CODE_HOME:-$HOME/.t3}/worktrees" t3_scratch="${T3CODE_HOME:-$HOME/.t3}/scratch"
-  local -A t3_alive_paths t3_settled_at
+  local t3_user t3_user_unsettled t3_user_settled
+  local -A t3_alive_paths t3_settled_at t3_user_settled_at
   local -a t3_worktrees t3_scratch_dirs
   local t3_grace=$(( EPOCHSECONDS - 3600 ))
   local t3_scratch_cutoff=$(( EPOCHSECONDS - ${ORP_T3_SCRATCH_DAYS:-14} * 86400 ))
+  local t3_wt_cutoff=$(( EPOCHSECONDS - ${ORP_T3_WORKTREE_SETTLED_HOURS:-24} * 3600 ))
   if [[ -r "$t3_home/userdata/statev2.sqlite" ]] && (( $+commands[sqlite3] )); then
-    # One row per path: any non-deleted thread / any unsettled one / newest settle.
+    # One row per path: any non-deleted thread / any unsettled one / newest
+    # settle, then the same three over user-created (non-agent) threads only.
     if t3_rows="$(sqlite3 -readonly -separator $'\t' "$t3_home/userdata/statev2.sqlite" "
         SELECT p, MAX(deleted_at IS NULL), MAX(deleted_at IS NULL AND s IS NULL),
-               IFNULL(MAX(CASE WHEN deleted_at IS NULL THEN CAST(strftime('%s', s) AS INTEGER) END), 0)
+               IFNULL(MAX(CASE WHEN deleted_at IS NULL THEN CAST(strftime('%s', s) AS INTEGER) END), 0),
+               MAX(deleted_at IS NULL AND u), MAX(deleted_at IS NULL AND u AND s IS NULL),
+               IFNULL(MAX(CASE WHEN deleted_at IS NULL AND u THEN CAST(strftime('%s', s) AS INTEGER) END), 0)
         FROM (SELECT json_extract(payload_json, '\$.worktreePath') AS p, deleted_at,
-                     json_extract(payload_json, '\$.settledAt') AS s
+                     json_extract(payload_json, '\$.settledAt') AS s,
+                     IFNULL(json_extract(payload_json, '\$.createdBy'), '') != 'agent' AS u
               FROM orchestration_v2_projection_threads)
         WHERE p IS NOT NULL GROUP BY p" 2>/dev/null)"; then
       t3_ok=1
-      for t3_path t3_alive t3_unsettled t3_settled in "${(@ps:\t:)${(f)t3_rows}}"; do
+      for t3_path t3_alive t3_unsettled t3_settled t3_user t3_user_unsettled t3_user_settled \
+          in "${(@ps:\t:)${(f)t3_rows}}"; do
         (( t3_alive )) || continue
         t3_alive_paths[$t3_path]=1
         (( t3_unsettled )) || t3_settled_at[$t3_path]=$t3_settled
+        (( t3_user && ! t3_user_unsettled )) && t3_user_settled_at[$t3_path]=$t3_user_settled
       done
     fi
   fi
@@ -95,7 +109,11 @@ orp-cleanup() {
           (( ${+t3_settled_at[$wt]} && ${t3_settled_at[$wt]:-0} < t3_scratch_cutoff )) || continue
         fi
       else
-        (( ${+t3_alive_paths[$wt]} )) && continue
+        # Live unless its user threads all settled over the cutoff; agent
+        # sub-threads alone don't keep it.
+        if (( ${+t3_alive_paths[$wt]} )); then
+          (( ${+t3_user_settled_at[$wt]} && ${t3_user_settled_at[$wt]:-0} < t3_wt_cutoff )) || continue
+        fi
         # Only linked git worktrees; the project dirs above them are not ours to judge.
         [[ -f "$wt/.git" ]] || continue
       fi
@@ -365,7 +383,7 @@ orp-cleanup() {
     print -rl -- "${(@)cwt_names/#/    }"
   fi
   if (( ${#t3_worktrees} )); then
-    print -r -- "  t3 worktrees:    ${#t3_worktrees} no live T3 thread uses"
+    print -r -- "  t3 worktrees:    ${#t3_worktrees} with no live thread, or user threads settled over ${ORP_T3_WORKTREE_SETTLED_HOURS:-24}h ago"
     print -rl -- "${(@)${(@)t3_worktrees#$t3_root/}/#/    }"
   fi
   if (( ${#t3_scratch_dirs} )); then
