@@ -79,6 +79,10 @@ export PATH="/home/toms/.bun/bin:$PATH"
 export PATH=$PATH:/home/toms/.turso
 export PATH=$PATH:/home/toms/.local/bin/
 export PATH=$PATH:/home/toms/.cargo/bin/
+# Prebuilt binaries only: cargo-binstall must never fall back to compiling from source,
+# and sharp must use its bundled libvips instead of building against the system one.
+export BINSTALL_DISABLE_STRATEGIES=compile
+export SHARP_IGNORE_GLOBAL_LIBVIPS=1
 export PATH=$PATH:/home/toms/.local/share/nvim/mason/bin/
 export PATH=$PATH:/home/toms/.deno/bin
 export PATH=$PATH:/var/lib/flatpak/exports/share

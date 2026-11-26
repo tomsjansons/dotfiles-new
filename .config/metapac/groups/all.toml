@@ -196,19 +196,11 @@ cargo = { packages = [
   ] } },
   { name = "lsp-ai", options = { version = "0.7.0", features = [ # Language-server based AI assistant tooling.
   ] } },
-  { name = "plotrs", options = { version = "0.1.3", features = [ # Rust plotting CLI/tool installed from cargo.
-  ] } },
   { name = "trunk", options = { version = "0.21.5", features = [ # Build tool/dev server for Rust WebAssembly web apps.
   ] } },
   { name = "wasm-bindgen-cli", options = { version = "0.2.101", features = [ # CLI glue generator for Rust WebAssembly bindings.
   ] } },
   { name = "zizmor", options = { version = "1.20.0", features = [ # Static analyzer for GitHub Actions security issues.
-  ] } },
-  { name = "heron", options = { version = "0.1.0", features = [
-  ] } },
-  { name = "herond", options = { version = "0.1.0", features = [
-  ] } },
-  { name = "magpie", options = { version = "0.1.0", features = [
   ] } },
 ] }
 flatpak = { repos = [
