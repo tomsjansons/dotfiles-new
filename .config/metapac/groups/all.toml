@@ -22,6 +22,7 @@ arch = { packages = [
   "bind", # DNS utilities such as dig and nslookup for DNS diagnostics.
   "blender", # 3D modelling, animation and rendering suite.
   "bluez-utils", # Bluetooth command-line utilities and services for pairing and managing devices.
+  "cargo-binstall", # Installs prebuilt Rust binaries; metapac's cargo backend uses it (binstall = true).
   "cups", # Printing system service.
   "cups-pdf", # Virtual PDF printer for CUPS.
   "cursor-bin", # Cursor AI code editor.
